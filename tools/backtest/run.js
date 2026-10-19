@@ -129,7 +129,8 @@ function signal(p, k, grid, notional) {
   if (!isFinite(c.slip)) return null;
   const venues = p.structure === 'perp' ? [p.long.venue, p.short.venue] : [p.short.venue];
   const transfers = venues.reduce((a, v) => a + transferUsd(v, notional / CFG.leverage), 0);
-  const expNet = edge * CFG.holdHorizonWindows - (c.fees + c.slip + transfers) / notional;
+  // edgeHaircut < 1 discounts the recent spread, which tends to shrink after entry.
+  const expNet = edge * (CFG.edgeHaircut ?? 1) * CFG.holdHorizonWindows - (c.fees + c.slip + transfers) / notional;
   return { mean, hit, last, edge, expNet, recentOk: recent.length === CFG.minRecent && recent.every((x) => x > 0), cost: c, transfers };
 }
 
@@ -187,6 +188,14 @@ function simulateInner(legs, pairs, opts) {
       const exitN = opts.exitWindows || 3;
       for (let j = k - exitN; j < k; j++) { const c = carryAt(pos.p, grid[j]); if (c !== undefined) recent.push(c); }
       const recentMean = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+      if (opts.costAwareExit) {
+        // Leaving costs money too: exit only when the expected loss from staying over the next
+        // horizon exceeds the cost of closing, and never before the minimum hold.
+        const exitCost = (pos.cost.fees - pos.cost.entryFees + pos.cost.slip - pos.cost.entrySlip) / pos.notional;
+        const stay = sig ? sig.mean * CFG.holdHorizonWindows : -Infinity;
+        if (pos.windows >= (opts.minHoldWindows || 0) && stay < -exitCost) { closePos(pos, T, !sig ? 'data gap' : 'expected loss exceeds exit cost'); open.splice(i, 1); }
+        continue;
+      }
       if (!sig || recentMean < 0 || sig.edge <= 0) { closePos(pos, T, !sig ? 'data gap' : recentMean < 0 ? 'carry turned negative' : 'edge gone'); open.splice(i, 1); }
     }
     // 2) entries

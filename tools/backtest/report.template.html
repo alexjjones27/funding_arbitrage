@@ -140,6 +140,12 @@ tr.focus td { font-weight: 600; }
   </section>
 
   <section class="panel">
+    <h2>Why it lost money, and what fixes it</h2>
+    <p class="sub">In the base case the median trade cost 41 bps to open and close and earned 11 bps of funding. At entry the signal expected $705 over the trades' first week; they delivered −$42, because wide spreads shrink once you enter. Thirteen trades exited within two days and lost $212, nearly all of it costs, with −$8 of funding; the 25 held longer made $170. The fixes below target that churn. They were designed from this diagnosis rather than searched for, but on the same data, so the unseen column is the fairest guide. Few trades means thin evidence.</p>
+    <div class="tablewrap"><table id="fixes"></table></div>
+  </section>
+
+  <section class="panel">
     <h2>Walk-forward optimization</h2>
     <p class="sub" id="wfoSub"></p>
     <div class="tablewrap"><table id="wfoFolds"></table></div>
@@ -331,6 +337,13 @@ tr.focus td { font-weight: 600; }
 
   const cfg = D.cfg;
   $('universe').textContent = `${D.legs} markets (perp and spot) across ${D.venues.length} venues, forming ${D.pairs} candidate pairs: every linear perp with at least $2M open interest and $5M daily volume today, listed on two or more venues, plus same-venue spot with $5M volume for cash-and-carry. Funding from each venue's settlement history; prices from hourly candles. The first ${cfg.warmupWindows / 3} days are warm-up for the signal, so trading runs ${day(g0)} to ${day(g1)}.`;
+
+  // ------------------------------------------------------------ fixes
+  if (D.fixes) {
+    const cell = (x) => `<td class="n ${cls(x.pnl)}"><b>${usd(x.pnl, true)}</b></td><td class="n">${pct(x.apr, true)}</td><td class="n">${x.trades}</td>`;
+    $('fixes').innerHTML = '<thead><tr><th class="l" rowspan="2">Change</th><th colspan="3">Full 87 days</th><th colspan="3">Without BTW</th><th colspan="3">Unseen 59 days</th></tr><tr><th>P&amp;L</th><th>APR</th><th>Trades</th><th>P&amp;L</th><th>APR</th><th>Trades</th><th>P&amp;L</th><th>APR</th><th>Trades</th></tr></thead><tbody>' +
+      D.fixes.map((r) => `<tr class="${/^[EI]\./.test(r.name) ? 'focus' : ''}"><td class="l">${esc(r.name)}</td>${cell(r.full)}${cell(r['excl. BTW'])}${cell(r.unseen)}</tr>`).join('') + '</tbody>';
+  }
 
   // ------------------------------------------------------------ walk-forward
   if (D.wfo) {
