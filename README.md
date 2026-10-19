@@ -194,3 +194,8 @@ out-of-sample result next to the fixed base case.
 `node tools/backtest/strategy.js bt-data.json wfo-results.json strategy-results.json` backtests
 the selected rule set (cost-aware exit, spread haircut, crypto only, 2 slots, half maker) with
 period, execution, cost and rule stress tests; `strategy.template.html` renders it.
+
+One-year version: `collect_year.js` gathers a year of funding (OKX and Gate archives plus APIs),
+hourly prices and volume for OKX, Gate, Hyperliquid and dYdX; `strategy_year.js` runs the frozen
+patient-carry rules with a point-in-time $5M/day liquidity floor and slippage scaled to each
+date's liquidity; `strategy_year.template.html` renders the report.

@@ -42,10 +42,14 @@ const T = (group, name, r) => { const b = brief(r); out.tests.push({ group, name
 T('Period', 'Full year', main);
 const pre = T('Period', 'Before the rules were designed (out-of-sample)', run({ to: DESIGN_START }));
 T('Period', 'Design period (last 3 months)', run({ from: DESIGN_START }));
-const top = main.trades.slice().sort((a, b) => b.total - a.total);
-if (top[0]) T('Period', `Without the best asset (${top[0].base})`, run({ exclude: STOCKS.concat([top[0].base]) }));
-const top2 = [...new Set(top.map((t) => t.base))].slice(0, 2);
-if (top2.length === 2) T('Period', `Without the two best assets (${top2.join(', ')})`, run({ exclude: STOCKS.concat(top2) }));
+// Rank assets by total P&L across all their trades.
+const byAsset = {};
+for (const t of main.trades) byAsset[t.base] = (byAsset[t.base] || 0) + t.total;
+const ranked = Object.entries(byAsset).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+const worst = ranked[ranked.length - 1];
+T('Period', `Without the best asset (${ranked[0]})`, run({ exclude: STOCKS.concat([ranked[0]]) }));
+T('Period', `Without the two best assets (${ranked.slice(0, 2).join(', ')})`, run({ exclude: STOCKS.concat(ranked.slice(0, 2)) }));
+T('Period', `Without the worst asset (${worst})`, run({ exclude: STOCKS.concat([worst]) }));
 T('Execution', 'All taker fills', run({}, { makerShare: 0 }));
 T('Execution', 'All maker fills', run({}, { makerShare: 1 }));
 T('Costs', 'Slippage doubled', run({}, { slipScale: 2 }));

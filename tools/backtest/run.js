@@ -226,7 +226,7 @@ function simulateInner(legs, pairs, opts) {
         const ce = CFG.slipTimeScale ? tradeCost(pos.p, pos.notional, T) : pos.cost;
         const exitCost = (ce.fees - ce.entryFees + ce.slip - ce.entrySlip) / pos.notional;
         const stay = sig ? sig.mean * CFG.holdHorizonWindows : -Infinity;
-        if (pos.windows >= (opts.minHoldWindows || 0) && stay < -exitCost) { closePos(pos, T, !sig ? 'data gap' : 'expected loss exceeds exit cost'); open.splice(i, 1); }
+        if (pos.windows >= (opts.minHoldWindows || 0) && stay < -exitCost) { closePos(pos, T, !sig ? 'liquidity fell below the floor (or data gap)' : 'expected loss exceeds exit cost'); open.splice(i, 1); }
         continue;
       }
       if (!sig || recentMean < 0 || sig.edge <= 0) { closePos(pos, T, !sig ? 'data gap' : recentMean < 0 ? 'carry turned negative' : 'edge gone'); open.splice(i, 1); }

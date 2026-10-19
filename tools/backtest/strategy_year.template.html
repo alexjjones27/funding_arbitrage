@@ -220,7 +220,13 @@ tr.focus td { font-weight: 600; }
     s += `<text class="lbl" x="${x(last[0]) - 8}" y="${y(last[1]) - 10}" text-anchor="end">${usd(last[1])}</text>`;
     // time axis
     const ya = H1 + 16;
-    for (let d = Math.ceil(g0 / (14 * 864e5)) * 14 * 864e5; d < g1; d += 14 * 864e5) s += `<text class="tick" x="${x(d)}" y="${ya}" text-anchor="middle">${day(d)}</text>`;
+    // Month starts as ticks (every other month on narrow screens).
+    const mt = new Date(g0); mt.setUTCDate(1); mt.setUTCHours(0, 0, 0, 0);
+    for (let i = 0; mt.getTime() < g1; i++, mt.setUTCMonth(mt.getUTCMonth() + 1)) {
+      const d = mt.getTime();
+      if (d < g0 || (narrow && i % 2)) continue;
+      s += `<text class="tick" x="${x(d)}" y="${ya}" text-anchor="middle">${mt.toLocaleDateString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' })}</text>`;
+    }
     // positions: assign lanes greedily
     const laneEnd = [];
     for (const t of trades) {
@@ -282,6 +288,8 @@ tr.focus td { font-weight: 600; }
   const ranked = Object.entries(byAsset).sort((a, b) => b[1] - a[1]);
   const top3 = ranked.slice(0, 3).reduce((a, x) => a + x[1], 0);
   $('nature').innerHTML = `<b>Concentration:</b> the three best assets (${ranked.slice(0, 3).map(([b, v]) => `${esc(b)} ${usd(v, true)}`).join(', ')}) made ${usd(top3, true)} of the ${usd(S.pnl, true)}. Results depend on a handful of persistent spreads appearing.`;
+  const worstT = trades.reduce((a, t) => (t.total < a.total ? t : a), trades[0]);
+  if (worstT && worstT.price < -100) $('nature').innerHTML += ` <b>Worst trade:</b> ${esc(worstT.base)} (${day(worstT.entry)} to ${day(worstT.exit)}) lost ${usd(-worstT.total)} although hedged. The token crashed about 90% and ${VN[worstT.long]} and ${VN[worstT.short]} then quoted it up to 2x apart for days, so one leg's losses were not offset by the other. That cross-venue break is the real tail risk of this strategy, and no hourly stop would have avoided it.`;
 
   // ------------------------------------------------------------ monthly bars
   function monthlyChart() {
