@@ -1,0 +1,332 @@
+<title>Funding Arb Backtest</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; verdict first, then the curve, the cost waterfall, scenarios, trades, method. */
+:root {
+  --bg: #f7f7f4;
+  --surface: #ffffff;
+  --surface-2: #f0efea;
+  --ink: #121211;
+  --ink-2: #4f4e4a;
+  --muted: #85837c;
+  --grid: #e3e2db;
+  --axis: #c4c2b8;
+  --border: rgba(18, 18, 17, 0.10);
+  --s1: #2a78d6;
+  --s2: #1baf7a;
+  --s3: #eb6834;
+  --s4: #eda100;
+  --pos: #1f7a4d;
+  --neg: #c23b3a;
+  --pos-bar: #1baf7a;
+  --neg-bar: #e0605f;
+  --accent-wash: rgba(42, 120, 214, 0.08);
+  --font: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f0f0e; --surface: #191918; --surface-2: #22221f; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+    --grid: #2b2b28; --axis: #3b3b37; --border: rgba(255, 255, 255, 0.10);
+    --s1: #3987e5; --s2: #199e70; --s3: #d95926; --s4: #c98500;
+    --pos: #4cc48a; --neg: #ef7b7b; --pos-bar: #199e70; --neg-bar: #d65a59; --accent-wash: rgba(57, 135, 229, 0.12);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f0f0e; --surface: #191918; --surface-2: #22221f; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+  --grid: #2b2b28; --axis: #3b3b37; --border: rgba(255, 255, 255, 0.10);
+  --s1: #3987e5; --s2: #199e70; --s3: #d95926; --s4: #c98500;
+  --pos: #4cc48a; --neg: #ef7b7b; --pos-bar: #199e70; --neg-bar: #d65a59; --accent-wash: rgba(57, 135, 229, 0.12);
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font); margin: 0; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0 0 4px; text-wrap: balance; }
+.eyebrow { font: 500 12px/1.4 var(--mono); color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.lede { max-width: 68ch; color: var(--ink-2); margin: 8px 0 0; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 72ch; }
+.num, td.n, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+section { min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; min-width: 0; }
+
+.headline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hcard { border-top: 3px solid var(--c); background: var(--surface); border-radius: 0 0 10px 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hcard .k { font-size: 13px; color: var(--ink-2); }
+.hcard .v { font: 600 28px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.hcard .d { font-size: 12.5px; color: var(--muted); }
+
+.verdict { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; margin: 0; padding: 0; list-style: none; }
+.verdict li { padding-left: 14px; border-left: 2px solid var(--axis); color: var(--ink-2); font-size: 14px; }
+.verdict b { color: var(--ink); }
+
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .gridline { stroke: var(--grid); }
+.chart .zero { stroke: var(--axis); }
+.chart .tick { fill: var(--muted); font: 11px var(--mono); }
+.chart .lbl { font: 600 11.5px var(--font); fill: var(--ink-2); }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.chart .cross { stroke: var(--axis); stroke-dasharray: 3 3; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); min-width: 210px; z-index: 2; }
+.tip .row { display: flex; justify-content: space-between; gap: 14px; }
+.tip .sw { display: inline-block; width: 10px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); margin-top: 8px; }
+.legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+select { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); max-width: 100%; }
+select:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+
+.wf { display: grid; grid-template-columns: 170px minmax(0, 1fr) 90px; gap: 8px 12px; align-items: center; font-size: 14px; }
+.wf .bar-track { position: relative; height: 22px; }
+.wf .bar { position: absolute; top: 3px; height: 16px; border-radius: 4px; }
+.wf .mid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--axis); }
+.wf .total { font-weight: 600; border-top: 1px solid var(--grid); padding-top: 8px; }
+.wf .v { text-align: right; }
+
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink-2); font-weight: 600; font-size: 12px; background: var(--surface-2); position: sticky; top: 0; }
+th.l, td.l { text-align: left; }
+tbody tr:hover { background: var(--accent-wash); }
+tr.focus td { font-weight: 600; }
+.trades-wrap { max-height: 460px; overflow: auto; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11.5px; background: var(--surface-2); color: var(--ink-2); }
+
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.method p { margin: 0 0 8px; color: var(--ink-2); font-size: 14px; max-width: 70ch; }
+.method h3 { font-size: 14px; margin: 0 0 6px; }
+.fine { color: var(--muted); font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .headline, .verdict, .cols { grid-template-columns: minmax(0, 1fr); }
+  .wf { grid-template-columns: 120px minmax(0, 1fr) 76px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: no-preference) { .chart .line { transition: opacity .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="period"></div>
+    <h1>Funding-rate arbitrage with $10,000, the last three months</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <section class="headline" id="headline" aria-label="Headline results"></section>
+
+  <section>
+    <ul class="verdict" id="verdict"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Equity, $10,000 start</h2>
+    <p class="sub">Marked every 8 hours, including open positions' funding, price P&amp;L and costs paid so far. Hover for values.</p>
+    <div class="chart" id="equity"></div>
+    <div class="legend" id="equityLegend"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Where the money went</h2>
+    <p class="sub">Funding collected against everything it cost to collect it. Price P&amp;L is what the two legs' prices did against each other (basis), since direction is hedged.</p>
+    <div class="controls"><label for="wfRun" class="fine">Scenario</label><select id="wfRun"></select></div>
+    <div class="wf" id="waterfall"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Every scenario</h2>
+    <p class="sub">Same data, same costs. Only the base case's rules were fixed before seeing results; the variants show how much the answer moves with each choice, and the hindsight rows show what perfect foresight of the best pairs would have paid.</p>
+    <div class="tablewrap"><table id="scen"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Trades</h2>
+    <div class="controls"><label for="trRun" class="fine">Scenario</label><select id="trRun"></select><span class="fine" id="trSum"></span></div>
+    <div class="tablewrap trades-wrap"><table id="trades"></table></div>
+  </section>
+
+  <section class="cols method">
+    <div class="panel">
+      <h3>How the strategy trades</h3>
+      <p>Every 8 hours (00:00, 08:00, 16:00 UTC) it looks only at data up to that moment. A pair qualifies when its funding carry was positive in at least 60% of the last 21 windows (7 days), positive in each of the last 3, and its expected carry over the next 7 days (half the latest window, half the 7-day mean) beats the round-trip cost plus transfers by the entry hurdle.</p>
+      <p>Capital is split into slots (3 in the base case); each slot holds one pair, one asset at most once. A position exits when its carry over the last 24 hours averages below zero (48 hours with the slow exit) or the forward estimate turns negative, then the slot refills.</p>
+      <p>Perp-perp: each $3,333 slot puts half on each venue as margin at 2x, so $3,333 notional a leg. Cash-and-carry: spot plus a 2x short on the same venue, $2,222 notional.</p>
+    </div>
+    <div class="panel">
+      <h3>What is charged</h3>
+      <p><b>Funding:</b> the rates each venue actually settled, every print, on the position's live notional.</p>
+      <p><b>Fees:</b> base-tier taker on entry and exit of both legs (OKX 0.05%, Bitget 0.06%, Gate 0.075%, Hyperliquid 0.045%, dYdX 0.05%; spot 0.1 to 0.2%). Maker variants use maker fees on half the fills, with no slippage on those.</p>
+      <p><b>Slippage:</b> average fill versus mid from walking each venue's order book at the trade size, entry and exit sides separately.</p>
+      <p><b>Transfers and gas:</b> funding each venue costs a $1 withdrawal fee, plus deposit gas of $0.05 (Arbitrum bridge to Hyperliquid) or $0.10 (to dYdX), plus 2 bps to swap USDT to USDC for those two. Every margin top-up between venues pays this again. Trading itself has no gas on any of these venues (Hyperliquid and dYdX run their own chains with gasless orders).</p>
+      <p><b>Margin:</b> each perp leg is checked hourly against its venue's maintenance rate. When a leg's equity falls to half its margin or 1.5x maintenance, both legs' equity is pooled and split (one transfer). When a rally pushes notional 50% over target, both legs are trimmed back, paying fees and slippage on the trim. A liquidation would forfeit the leg's remaining margin; none occurred.</p>
+    </div>
+    <div class="panel">
+      <h3>Universe</h3>
+      <p id="universe"></p>
+    </div>
+    <div class="panel">
+      <h3>Limits</h3>
+      <p>Binance and Bybit, the largest venues, were unreachable from the test machine and are not in it. Their rates often set one side of the best spreads.</p>
+      <p>Slippage comes from today's order books; three months ago some books (BTW especially, which rose about 14x) were thinner, so early costs are likely understated.</p>
+      <p>The universe is markets that are liquid today, which favours survivors. Reverse carry is excluded: historical margin-borrow rates are not public.</p>
+      <p>Hourly prices miss intra-hour wicks, so margin stress is understated. Fills are assumed instant on both legs; in practice the legs fill seconds apart.</p>
+    </div>
+  </section>
+  <p class="fine">Backtest, not trading advice. Past funding does not predict future funding.</p>
+</div>
+
+<script>window.BT = __DATA__;</script>
+<script>
+(function () {
+  'use strict';
+  const D = window.BT;
+  const R = D.runs;
+  const $ = (id) => document.getElementById(id);
+  const usd = (x, sign) => (sign && x > 0 ? '+' : x < 0 ? '−' : '') + '$' + Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: Math.abs(x) < 100 ? 2 : 0, maximumFractionDigits: Math.abs(x) < 100 ? 2 : 0 });
+  const pct = (x, sign) => (sign && x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1) + '%';
+  const cls = (x) => (x > 0 ? 'pos' : x < 0 ? 'neg' : '');
+  const day = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const dt = (t) => new Date(t).toISOString().slice(5, 13).replace('T', ' ') + 'h';
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const VN = { okx: 'OKX', bitget: 'Bitget', gate: 'Gate', hyperliquid: 'Hyperliquid', dydx: 'dYdX' };
+  const SHORT = { main: 'Base case', best: 'Tuned rules', hindsight3: 'Hindsight, 3 best pairs', hindsight1: 'Hindsight, best pair', noBTW: 'Base case without BTW',
+    slowExit: 'Slow exit', maker50: 'Half maker fills', highHurdle: 'Stricter entry', perpOnly: 'Perp-perp only', carryOnly: 'Cash-and-carry only', concentrated: '1 slot', diversified: '5 slots' };
+
+  const [g0, g1] = D.grid;
+  $('period').textContent = `${day(g0)} to ${day(g1)} 2026 · ${R.main.stats.days} days · ${D.venues.map((v) => VN[v]).join(', ')}`;
+  const m = R.main, b = R.best, h = R.hindsight3;
+  $('lede').textContent = `A walk-forward test of the screener's rules on ${D.pairs} pairs: every decision uses only data available at the time, and every trade pays fees, order-book slippage, transfers and gas. Over this period, funding arbitrage after costs was close to break-even unless execution was cheap, and nearly all of the profit came from one token.`;
+
+  const cards = [
+    ['main', 'var(--s1)', 'Base case rules', 'Rules fixed in advance, taker fills'],
+    ['best', 'var(--s2)', 'Tuned rules', 'Best variant found; chosen after seeing results'],
+    ['hindsight3', 'var(--s3)', 'Hindsight, 3 best pairs', 'Perfect foresight; not achievable'],
+  ];
+  $('headline').innerHTML = cards.map(([k, c, t, d]) => {
+    const s = R[k].stats;
+    return `<div class="hcard" style="--c:${c}"><span class="k">${t}</span><span class="v ${cls(s.pnl)}">${usd(s.pnl, true)}</span><span class="d">${pct(s.returnPct, true)} in ${s.days} days · ${pct(s.aprPct, true)} a year · max drawdown ${pct(s.maxDrawdownPct)}</span><span class="d">${d}</span></div>`;
+  }).join('');
+
+  const fundShare = (r) => -(r.ledger.fees + r.ledger.slippage + r.ledger.transfers) / r.ledger.funding * 100;
+  const btw = m.trades.filter((t) => t.base === 'BTW').reduce((a, t) => a + t.total, 0);
+  $('verdict').innerHTML = [
+    `<b>${fundShare(m) >= 100 ? 'Costs exceeded the funding' : 'Costs ate ' + fundShare(m).toFixed(0) + '% of the funding'}</b> in the base case: ${usd(m.ledger.funding)} collected, ${usd(-(m.ledger.fees + m.ledger.slippage + m.ledger.transfers))} paid in fees, slippage and transfers.`,
+    `<b>One token carried the result.</b> BTW (Bitget vs Gate) made ${usd(btw, true)} in the base case as it rallied about 14x. Excluded, the base case lost ${usd(-R.noBTW.stats.pnl)}.`,
+    `<b>Execution cost is the lever.</b> Filling half the orders as maker turns ${usd(m.stats.pnl, true)} into ${usd(R.maker50.stats.pnl, true)}; a stricter entry hurdle and slower exits each help by trading less.`,
+    `<b>Concentration hurt.</b> Putting all $10,000 in one pair at a time lost ${usd(-R.concentrated.stats.pnl)}: slippage at $10,000 a leg is far higher than at $3,333.`,
+    `<b>Cash-and-carry was steady but small.</b> Two trades, both winners, ${usd(R.carryOnly.stats.pnl, true)}, with capital idle most of the time because few pairs passed.`,
+    `<b>Hedged risk stayed contained.</b> ${m.rebalances} margin top-ups and ${m.resizes} size trims, no liquidations, max drawdown ${pct(m.stats.maxDrawdownPct)} in the base case.`,
+  ].map((x) => `<li>${x}</li>`).join('');
+
+  // ------------------------------------------------------------ equity chart
+  const SER = [['main', 'var(--s1)'], ['best', 'var(--s2)'], ['hindsight3', 'var(--s3)'], ['noBTW', 'var(--s4)']];
+  function equityChart() {
+    const el = $('equity');
+    const W = Math.max(320, el.clientWidth), H = W < 600 ? 260 : 340;
+    const pad = { l: 64, r: W < 600 ? 12 : 150, t: 12, b: 28 };
+    const all = SER.flatMap(([k]) => R[k].equity.map((e) => e[1]));
+    let lo = Math.min(10000, ...all), hi = Math.max(10000, ...all);
+    const span = hi - lo; lo -= span * 0.06; hi += span * 0.06;
+    const t0 = g0, t1 = g1;
+    const x = (t) => pad.l + ((t - t0) / (t1 - t0)) * (W - pad.l - pad.r);
+    const y = (v) => pad.t + ((hi - v) / (hi - lo)) * (H - pad.t - pad.b);
+    const step = [50, 100, 200, 250, 500].find((s) => (hi - lo) / s <= 6) || 1000;
+    let svg = '';
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      svg += `<line class="${v === 10000 ? 'zero' : 'gridline'}" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/>`;
+      svg += `<text class="tick" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">$${v.toLocaleString('en-US')}</text>`;
+    }
+    for (let d = Math.ceil(t0 / (14 * 864e5)) * 14 * 864e5; d < t1; d += 14 * 864e5) svg += `<text class="tick" x="${x(d)}" y="${H - 6}" text-anchor="middle">${day(d)}</text>`;
+    const ends = [];
+    for (const [k, c] of SER) {
+      const pts = R[k].equity;
+      svg += `<path class="line" stroke="${c}" d="${pts.map((e, i) => (i ? 'L' : 'M') + x(e[0]).toFixed(1) + ',' + y(e[1]).toFixed(1)).join('')}"/>`;
+      const last = pts[pts.length - 1];
+      svg += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`;
+      ends.push({ k, c, y: y(last[1]), v: last[1] });
+    }
+    if (pad.r > 40) { // direct labels, nudged apart
+      ends.sort((a, b) => a.y - b.y);
+      for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 15) ends[i].y = ends[i - 1].y + 15;
+      for (const e of ends) svg += `<text class="lbl" x="${W - pad.r + 10}" y="${e.y + 4}">${SHORT[e.k]}</text>`;
+    }
+    svg += `<line class="cross" id="cross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`;
+    svg += `<rect x="${pad.l}" y="${pad.t}" width="${W - pad.l - pad.r}" height="${H - pad.t - pad.b}" fill="transparent" id="hit"/>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity curves for the base case, tuned rules, hindsight and base case without BTW">${svg}</svg><div class="tip" id="tip" hidden></div>`;
+    const tip = $('tip'), cross = $('cross'), hit = $('hit');
+    const times = R.main.equity.map((e) => e[0]);
+    const move = (ev) => {
+      const rect = el.querySelector('svg').getBoundingClientRect();
+      const px = ((ev.clientX - rect.left) / rect.width) * W;
+      const t = t0 + ((px - pad.l) / (W - pad.l - pad.r)) * (t1 - t0);
+      let i = 0; while (i < times.length - 1 && times[i + 1] <= t) i++;
+      const tt = times[i];
+      cross.setAttribute('x1', x(tt)); cross.setAttribute('x2', x(tt)); cross.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.innerHTML = `<div class="fine">${new Date(tt).toISOString().slice(0, 16).replace('T', ' ')} UTC</div>` + SER.map(([k, c]) => {
+        const e = R[k].equity.find((z) => z[0] >= tt) || R[k].equity[R[k].equity.length - 1];
+        return `<div class="row"><span><span class="sw" style="background:${c}"></span>${SHORT[k]}</span><span class="mono">${usd(e[1])}</span></div>`;
+      }).join('');
+      const left = (x(tt) / W) * rect.width;
+      tip.style.left = Math.min(rect.width - tip.offsetWidth - 4, Math.max(0, left + 12)) + 'px';
+      tip.style.top = '8px';
+    };
+    hit.addEventListener('pointermove', move);
+    hit.addEventListener('pointerleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+  }
+  $('equityLegend').innerHTML = SER.map(([k, c]) => `<span><span class="sw" style="background:${c}"></span>${SHORT[k]} <span class="mono ${cls(R[k].stats.pnl)}">${usd(R[k].stats.pnl, true)}</span></span>`).join('');
+
+  // ------------------------------------------------------------ waterfall
+  const runOpts = Object.keys(R).map((k) => `<option value="${k}">${esc(SHORT[k])}: ${esc(R[k].label)}</option>`).join('');
+  $('wfRun').innerHTML = runOpts; $('trRun').innerHTML = runOpts;
+  function waterfall(k) {
+    const L = R[k].ledger;
+    const rows = [['Funding collected', L.funding], ['Price / basis', L.price], ['Trading fees', L.fees], ['Slippage', L.slippage], ['Transfers & gas', L.transfers]];
+    const net = rows.reduce((a, r) => a + r[1], 0);
+    const max = Math.max(...rows.map((r) => Math.abs(r[1])), Math.abs(net), 1);
+    const bar = (v) => {
+      const w = (Math.abs(v) / max) * 50;
+      return `<div class="bar-track"><span class="mid" style="left:50%"></span><span class="bar" style="${v >= 0 ? `left:50%` : `left:${50 - w}%`};width:${Math.max(w, 0.4)}%;background:${v >= 0 ? 'var(--pos-bar)' : 'var(--neg-bar)'}"></span></div>`;
+    };
+    $('waterfall').innerHTML = rows.map(([l, v]) => `<span>${l}</span>${bar(v)}<span class="v mono ${cls(v)}">${usd(v, true)}</span>`).join('') +
+      `<span class="total">Net P&amp;L</span><div class="total">${bar(net)}</div><span class="v mono total ${cls(net)}">${usd(net, true)}</span>`;
+  }
+  $('wfRun').onchange = () => waterfall($('wfRun').value);
+
+  // ------------------------------------------------------------ scenarios
+  function scenarios() {
+    const head = '<thead><tr><th class="l">Scenario</th><th>Net P&amp;L</th><th>Return</th><th>APR</th><th>Max DD</th><th>Sharpe</th><th>Trades</th><th>Win</th><th>Avg hold</th><th>Funding</th><th>Fees</th><th>Slippage</th><th>Transfers</th><th>Top-ups</th></tr></thead>';
+    const body = Object.keys(R).map((k) => {
+      const r = R[k], s = r.stats, l = r.ledger;
+      return `<tr class="${['main', 'best', 'hindsight3'].includes(k) ? 'focus' : ''}"><td class="l" title="${esc(r.label)}">${esc(SHORT[k])}</td><td class="n ${cls(s.pnl)}">${usd(s.pnl, true)}</td><td class="n">${pct(s.returnPct, true)}</td><td class="n">${pct(s.aprPct, true)}</td><td class="n">${pct(s.maxDrawdownPct)}</td><td class="n">${s.sharpe ?? '–'}</td><td class="n">${s.trades}</td><td class="n">${s.winRate ?? '–'}%</td><td class="n">${s.avgHoldDays ?? '–'}d</td><td class="n">${usd(l.funding)}</td><td class="n">${usd(l.fees, true)}</td><td class="n">${usd(l.slippage, true)}</td><td class="n">${usd(l.transfers, true)}</td><td class="n">${r.rebalances}</td></tr>`;
+    }).join('');
+    $('scen').innerHTML = head + '<tbody>' + body + '</tbody>';
+  }
+
+  // ------------------------------------------------------------ trades
+  function trades(k) {
+    const T = R[k].trades.slice().sort((a, b) => a.entry - b.entry);
+    const win = T.filter((t) => t.total > 0).length;
+    $('trSum').textContent = `${T.length} trades · ${win} winners · best ${T.length ? usd(Math.max(...T.map((t) => t.total)), true) : '–'} · worst ${T.length ? usd(Math.min(...T.map((t) => t.total)), true) : '–'}`;
+    $('trades').innerHTML = '<thead><tr><th class="l">Asset</th><th class="l">Type</th><th class="l">Long</th><th class="l">Short</th><th class="l">Entry</th><th class="l">Exit</th><th>Days</th><th>Notional</th><th>Funding</th><th>Price</th><th>Fees</th><th>Slippage</th><th>Transfers</th><th>Net</th><th class="l">Exit reason</th></tr></thead><tbody>' +
+      T.map((t) => `<tr><td class="l"><b>${esc(t.base)}</b></td><td class="l"><span class="tag">${t.structure === 'perp' ? 'Perp-perp' : 'Carry'}</span></td><td class="l">${VN[t.long]}${t.structure === 'carry' ? ' spot' : ''}</td><td class="l">${VN[t.short]}</td><td class="l mono">${dt(t.entry)}</td><td class="l mono">${dt(t.exit)}</td><td class="n">${(t.windows / 3).toFixed(1)}</td><td class="n">${usd(t.notional)}</td><td class="n ${cls(t.funding)}">${usd(t.funding, true)}</td><td class="n ${cls(t.price)}">${usd(t.price, true)}</td><td class="n">${usd(t.fees, true)}</td><td class="n">${usd(t.slippage, true)}</td><td class="n">${usd(t.transfers, true)}</td><td class="n ${cls(t.total)}"><b>${usd(t.total, true)}</b></td><td class="l">${esc(t.reason)}</td></tr>`).join('') + '</tbody>';
+  }
+  $('trRun').onchange = () => trades($('trRun').value);
+
+  const cfg = D.cfg;
+  $('universe').textContent = `${D.legs} markets (perp and spot) across ${D.venues.length} venues, forming ${D.pairs} candidate pairs: every linear perp with at least $2M open interest and $5M daily volume today, listed on two or more venues, plus same-venue spot with $5M volume for cash-and-carry. Funding from each venue's settlement history; prices from hourly candles. The first ${cfg.warmupWindows / 3} days are warm-up for the signal, so trading runs ${day(g0)} to ${day(g1)}.`;
+
+  equityChart();
+  waterfall('main');
+  scenarios();
+  trades('main');
+  let rt;
+  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(equityChart, 150); });
+})();
+</script>

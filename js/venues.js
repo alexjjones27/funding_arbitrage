@@ -207,7 +207,7 @@
         const end = cursor ? '&endTime=' + (cursor - 1) : '';
         const r = await http.get('bybit', `https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${m.id}&limit=200${end}`);
         return ((r.result && r.result.list) || []).map((x) => ({ t: +x.fundingRateTimestamp, r: +x.fundingRate }));
-      }, since, 6);
+      }, since, 12);
     },
     async book(m) {
       const r = await http.get('bybit', `https://api.bybit.com/v5/market/orderbook?category=linear&symbol=${m.id}&limit=500`);
@@ -434,8 +434,16 @@
       return { perps, spots };
     },
     async history(m, since) {
-      const r = await http.get('gate', `https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=${m.id}&limit=1000&from=${Math.floor(since / 1000)}`);
-      return (r || []).map((x) => ({ t: x.t * 1000, r: +x.r })).filter((x) => x.t >= since).sort((a, b) => a.t - b.t);
+      // The endpoint serves at most about 30 days per call, so walk forward in 30-day windows.
+      const out = [];
+      const end = Date.now();
+      for (let from = since; from < end; from += 30 * FAS.DAY) {
+        const to = Math.min(end, from + 30 * FAS.DAY);
+        const r = await http.get('gate', `https://api.gateio.ws/api/v4/futures/usdt/funding_rate?contract=${m.id}&limit=1000&from=${Math.floor(from / 1000)}&to=${Math.floor(to / 1000)}`);
+        out.push(...(r || []).map((x) => ({ t: x.t * 1000, r: +x.r })));
+      }
+      const seen = new Set();
+      return out.filter((x) => x.t >= since && !seen.has(x.t) && seen.add(x.t)).sort((a, b) => a.t - b.t);
     },
     async book(m) {
       const r = await http.get('gate', `https://api.gateio.ws/api/v4/futures/usdt/order_book?contract=${m.id}&limit=100`);
@@ -496,7 +504,7 @@
     async history(m, since) {
       const out = [];
       let start = since;
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         const r = await http.post('hyperliquid', HL, { type: 'fundingHistory', coin: m.id, startTime: start });
         if (!r || !r.length) break;
         out.push(...r.map((x) => ({ t: x.time, r: +x.fundingRate })));
@@ -567,7 +575,7 @@
         const before = cursor ? '&effectiveBeforeOrAt=' + new Date(cursor - 1).toISOString() : '';
         const r = await http.get('dydx', `https://indexer.dydx.trade/v4/historicalFunding/${m.id}?limit=1000${before}`);
         return ((r && r.historicalFunding) || []).map((x) => ({ t: Date.parse(x.effectiveAt), r: +x.rate }));
-      }, since, 2);
+      }, since, 3);
     },
     async book(m) {
       const r = await http.get('dydx', `https://indexer.dydx.trade/v4/orderbooks/perpetualMarket/${m.id}`);

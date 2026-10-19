@@ -171,3 +171,17 @@ tests/             node:test suite for the engine
 
 Not trading advice. Funding flips, venues fail, and a hedged position can still be liquidated on
 one side.
+
+## Backtest
+
+`tools/backtest/` runs a walk-forward test of the screener's rules on historical funding and
+hourly prices, charging fees, order-book slippage, transfers and gas:
+
+```
+NODE_USE_ENV_PROXY=1 node tools/capture.js snapshot.json          # current markets and books
+NODE_USE_ENV_PROXY=1 node tools/backtest/collect.js snapshot.json bt-data.json 92
+node tools/backtest/run.js bt-data.json bt-results.json
+```
+
+`run.js` prints each scenario (base rules, variants, hindsight) and writes the results;
+`report.template.html` renders them as a page.
