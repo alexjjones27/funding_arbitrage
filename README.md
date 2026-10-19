@@ -190,3 +190,7 @@ node tools/backtest/run.js bt-data.json bt-results.json
 every 14 days it scores 729 setting combinations on the prior 28 days only, trades the best on
 the next 14 unseen days (or stays in cash if nothing made money), and reports the stitched
 out-of-sample result next to the fixed base case.
+
+`node tools/backtest/strategy.js bt-data.json wfo-results.json strategy-results.json` backtests
+the selected rule set (cost-aware exit, spread haircut, crypto only, 2 slots, half maker) with
+period, execution, cost and rule stress tests; `strategy.template.html` renders it.

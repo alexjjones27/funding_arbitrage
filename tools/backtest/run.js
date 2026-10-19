@@ -104,7 +104,8 @@ function tradeCost(p, notional) {
   const ms = CFG.makerShare || 0;
   const leg = (l, entrySide) => {
     const exitSide = entrySide === 'buy' ? 'sell' : 'buy';
-    const sIn = interpSlip(l, notional, entrySide), sOut = interpSlip(l, notional, exitSide);
+    const sc = CFG.slipScale ?? 1;
+    const sIn = sc * interpSlip(l, notional, entrySide), sOut = sc * interpSlip(l, notional, exitSide);
     const f = ms * makerFee(l) + (1 - ms) * fee(l);
     return { fees: 2 * f * notional, slip: (1 - ms) * ((sIn + sOut) / 1e4) * notional };
   };
