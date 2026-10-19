@@ -159,7 +159,11 @@ function simulateInner(legs, pairs, opts) {
   const equity = [];
   const ledger = { funding: 0, price: 0, fees: 0, slippage: 0, transfers: 0 };
   let realized = 0, rebalances = 0, liquidations = 0, resizes = 0;
-  const firstTrade = CFG.warmupWindows;
+  // Optional trading window [opts.from, opts.to): signals still see all history before it.
+  let firstTrade = CFG.warmupWindows;
+  if (opts.from) while (firstTrade < grid.length && grid[firstTrade] < opts.from) firstTrade++;
+  let kEnd = grid.length;
+  if (opts.to) while (kEnd > firstTrade && grid[kEnd - 1] + B8 > opts.to) kEnd--;
 
   const closePos = (pos, t, reason) => {
     const c = pos.cost;
@@ -173,7 +177,7 @@ function simulateInner(legs, pairs, opts) {
       expNetBps: +(pos.expNet * 1e4).toFixed(1), rebalances: pos.rebalances, resizes: pos.resizes || 0 });
   };
 
-  for (let k = firstTrade; k < grid.length; k++) {
+  for (let k = firstTrade; k < kEnd; k++) {
     const T = grid[k];
     // 1) exits: carry turned (last 3 windows' mean below zero) or the forward signal no longer pays
     for (let i = open.length - 1; i >= 0 && !opts.forced; i--) {
@@ -186,7 +190,7 @@ function simulateInner(legs, pairs, opts) {
       if (!sig || recentMean < 0 || sig.edge <= 0) { closePos(pos, T, !sig ? 'data gap' : recentMean < 0 ? 'carry turned negative' : 'edge gone'); open.splice(i, 1); }
     }
     // 2) entries
-    if (open.length < K && k < grid.length - 3 && !(opts.forced && k > firstTrade)) {
+    if (open.length < K && k < kEnd - 3 && !(opts.forced && k > firstTrade)) {
       const held = new Set(open.map((o) => o.p.base));
       const cands = [];
       for (const p of universe) {
@@ -288,7 +292,7 @@ function simulateInner(legs, pairs, opts) {
     const unreal = open.reduce((a, o) => a + o.pnl.funding + o.pnl.price + o.pnl.fees + o.pnl.slippage + o.pnl.transfers, 0);
     equity.push([T + B8, +(CFG.capital + realized + unreal).toFixed(2), open.length]);
   }
-  const lastT = grid[grid.length - 1] + B8;
+  const lastT = grid[kEnd - 1] + B8;
   for (const pos of open.splice(0)) closePos(pos, lastT, 'end of test');
   equity.push([lastT, +(CFG.capital + realized).toFixed(2), 0]);
   return { opts, grid: [grid[firstTrade], lastT], equity, trades, ledger: roundPnl(ledger), rebalances, liquidations, resizes, stats: stats(equity, trades, grid[firstTrade], lastT) };
@@ -333,7 +337,9 @@ function hindsightPicks(pairs, K, structures, from, to) {
   return picked.map((r) => r.id);
 }
 
-(function main() {
+module.exports = { prep, buildPairs, simulate, CFG, BOUNDS, B8 };
+
+if (require.main === module) (function main() {
   const [inPath, outPath] = process.argv.slice(2);
   const data = JSON.parse(fs.readFileSync(inPath, 'utf8'));
   const legs = prep(data);

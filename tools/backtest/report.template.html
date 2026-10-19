@@ -140,6 +140,15 @@ tr.focus td { font-weight: 600; }
   </section>
 
   <section class="panel">
+    <h2>Walk-forward optimization</h2>
+    <p class="sub" id="wfoSub"></p>
+    <div class="tablewrap"><table id="wfoFolds"></table></div>
+    <h3 style="margin:18px 0 6px;font-size:14px">Same unseen period, fixed rule sets</h3>
+    <p class="sub">Each run trades straight through the out-of-sample period without re-optimizing. The selective settings are the ones the optimizer kept choosing; picking them by looking across all folds uses a little hindsight, so treat that row as the candidate to forward-test, not a proven result.</p>
+    <div class="tablewrap"><table id="wfoFixed"></table></div>
+  </section>
+
+  <section class="panel">
     <h2>Every scenario</h2>
     <p class="sub">Same data, same costs. Only the base case's rules were fixed before seeing results; the variants show how much the answer moves with each choice, and the hindsight rows show what perfect foresight of the best pairs would have paid.</p>
     <div class="tablewrap"><table id="scen"></table></div>
@@ -322,6 +331,23 @@ tr.focus td { font-weight: 600; }
 
   const cfg = D.cfg;
   $('universe').textContent = `${D.legs} markets (perp and spot) across ${D.venues.length} venues, forming ${D.pairs} candidate pairs: every linear perp with at least $2M open interest and $5M daily volume today, listed on two or more venues, plus same-venue spot with $5M volume for cash-and-carry. Funding from each venue's settlement history; prices from hourly candles. The first ${cfg.warmupWindows / 3} days are warm-up for the signal, so trading runs ${day(g0)} to ${day(g1)}.`;
+
+  // ------------------------------------------------------------ walk-forward
+  if (D.wfo) {
+    const W = D.wfo, F = W.exec;
+    const desc = (c) => c ? `${c.slots} slots · ${c.structures.map((x) => (x === 'perp' ? 'perp-perp' : 'carry')).join(' + ')} · exit after ${c.exitWindows / 3}d negative · hurdle ${(c.hurdle * 1e4).toFixed(0)} bps · ${Math.round(c.minHit * 100)}% hit · ${c.lookback / 3}d lookback` : 'stay in cash';
+    $('wfoSub').textContent = `Every ${W.testDays} days, ${W.combos} combinations of settings were scored on the previous ${W.trainDays} days only; the best one traded the next ${W.testDays} days, which it had never seen. If nothing made money in training, the strategy stays in cash. Out-of-sample period: ${day(W.folds[0].testFrom)} to ${day(W.folds[W.folds.length - 1].testTo)}.`;
+    const rows = [];
+    for (const [mode, label] of [['taker', 'Taker'], ['halfMaker', 'Half maker']]) {
+      for (const f of F[mode].folds) rows.push(`<tr><td class="l">${label}</td><td class="l mono">${day(f.testFrom)} to ${day(f.testTo)}</td><td class="l">${esc(desc(f.chosen))}</td><td class="n">${usd(f.trainPnl, true)}</td><td class="n ${cls(f.testPnl)}"><b>${usd(f.testPnl, true)}</b></td><td class="n ${cls(f.top10TestMean)}">${usd(f.top10TestMean, true)}</td><td class="n ${cls(f.baseTestPnl)}">${usd(f.baseTestPnl, true)}</td></tr>`);
+      const e = F[mode];
+      rows.push(`<tr class="focus"><td class="l">${label} total</td><td class="l"></td><td class="l">re-optimized every ${W.testDays} days</td><td></td><td class="n ${cls(e.oos.pnl)}">${usd(e.oos.pnl, true)} (${pct(e.oos.aprPct, true)}/yr)</td><td class="n ${cls(e.top10.pnl)}">${usd(e.top10.pnl, true)}</td><td class="n ${cls(e.base.pnl)}">${usd(e.base.pnl, true)}</td></tr>`);
+    }
+    $('wfoFolds').innerHTML = '<thead><tr><th class="l">Execution</th><th class="l">Unseen window</th><th class="l">Settings chosen from the prior 4 weeks</th><th>Training P&amp;L</th><th>Unseen P&amp;L</th><th>Top-10 settings, unseen avg</th><th>Fixed base case</th></tr></thead><tbody>' + rows.join('') + '</tbody>';
+    const O = D.oos;
+    $('wfoFixed').innerHTML = '<thead><tr><th class="l">Rule set, traded straight through</th><th>Net P&amp;L</th><th>APR</th><th>Max DD</th><th>Trades</th><th>Funding</th><th>Fees</th><th>Slippage</th><th>Transfers</th></tr></thead><tbody>' +
+      Object.entries(O).map(([k, r]) => `<tr class="${k.startsWith('selective') ? 'focus' : ''}"><td class="l">${esc(k)}</td><td class="n ${cls(r.stats.pnl)}">${usd(r.stats.pnl, true)}</td><td class="n">${pct(r.stats.aprPct, true)}</td><td class="n">${pct(r.stats.maxDrawdownPct)}</td><td class="n">${r.stats.trades}</td><td class="n">${usd(r.ledger.funding)}</td><td class="n">${usd(r.ledger.fees, true)}</td><td class="n">${usd(r.ledger.slippage, true)}</td><td class="n">${usd(r.ledger.transfers, true)}</td></tr>`).join('') + '</tbody>';
+  }
 
   equityChart();
   waterfall('main');

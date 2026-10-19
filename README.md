@@ -185,3 +185,8 @@ node tools/backtest/run.js bt-data.json bt-results.json
 
 `run.js` prints each scenario (base rules, variants, hindsight) and writes the results;
 `report.template.html` renders them as a page.
+
+`node tools/backtest/wfo.js bt-data.json wfo-results.json` runs a walk-forward optimization:
+every 14 days it scores 729 setting combinations on the prior 28 days only, trades the best on
+the next 14 unseen days (or stays in cash if nothing made money), and reports the stitched
+out-of-sample result next to the fixed base case.
