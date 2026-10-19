@@ -1,0 +1,312 @@
+<title>Patient Carry, One Year</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column. Verdict and rules, the curve with a positions strip under it, costs, trades, stress tests, caveats. */
+:root {
+  --bg: #f7f7f4; --surface: #ffffff; --surface-2: #f0efea; --ink: #121211; --ink-2: #4f4e4a; --muted: #85837c;
+  --grid: #e3e2db; --axis: #c4c2b8; --border: rgba(18, 18, 17, 0.10);
+  --s1: #1baf7a; --s2: #2a78d6; --s3: #eb6834; --s4: #eda100; --s5: #e87ba4;
+  --pos: #1f7a4d; --neg: #c23b3a; --pos-bar: #1baf7a; --neg-bar: #e0605f; --wash: rgba(27, 175, 122, 0.08);
+  --font: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f0f0e; --surface: #191918; --surface-2: #22221f; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+    --grid: #2b2b28; --axis: #3b3b37; --border: rgba(255, 255, 255, 0.10);
+    --s1: #199e70; --s2: #3987e5; --s3: #d95926; --s4: #c98500; --s5: #d55181;
+    --pos: #4cc48a; --neg: #ef7b7b; --pos-bar: #199e70; --neg-bar: #d65a59; --wash: rgba(25, 158, 112, 0.12);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f0f0e; --surface: #191918; --surface-2: #22221f; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+  --grid: #2b2b28; --axis: #3b3b37; --border: rgba(255, 255, 255, 0.10);
+  --s1: #199e70; --s2: #3987e5; --s3: #d95926; --s4: #c98500; --s5: #d55181;
+  --pos: #4cc48a; --neg: #ef7b7b; --pos-bar: #199e70; --neg-bar: #d65a59; --wash: rgba(25, 158, 112, 0.12);
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--font); margin: 0; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 26px; }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.1; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0 0 4px; text-wrap: balance; }
+.eyebrow { font: 500 12px/1.4 var(--mono); color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.lede { max-width: 68ch; color: var(--ink-2); margin: 8px 0 0; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; max-width: 72ch; }
+.mono, td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.stat .k { font-size: 12.5px; color: var(--ink-2); }
+.stat .v { font: 600 24px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.stat .d { font-size: 12px; color: var(--muted); }
+.rules { counter-reset: r; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; }
+.rules li { counter-increment: r; position: relative; padding-left: 30px; font-size: 14px; color: var(--ink-2); }
+.rules li::before { content: counter(r); position: absolute; left: 0; top: 1px; width: 20px; height: 20px; border-radius: 50%; background: var(--wash); color: var(--pos); font: 600 11.5px/20px var(--mono); text-align: center; }
+.rules b { color: var(--ink); }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .gridline { stroke: var(--grid); } .chart .zero { stroke: var(--axis); }
+.chart .tick { fill: var(--muted); font: 11px var(--mono); }
+.chart .lbl { font: 600 11.5px var(--font); fill: var(--ink); }
+.chart .lbl2 { font: 11px var(--mono); fill: var(--ink-2); }
+.chart .cross { stroke: var(--axis); stroke-dasharray: 3 3; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0,0,0,0.12); min-width: 190px; z-index: 2; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; }
+.wf { display: grid; grid-template-columns: 160px minmax(0, 1fr) 90px; gap: 8px 12px; align-items: center; font-size: 14px; }
+.wf .bar-track { position: relative; height: 22px; }
+.wf .bar { position: absolute; top: 3px; height: 16px; border-radius: 4px; }
+.wf .mid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--axis); left: 50%; }
+.wf .total { font-weight: 600; border-top: 1px solid var(--grid); padding-top: 8px; }
+.wf .v { text-align: right; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+th { color: var(--ink-2); font-weight: 600; font-size: 12px; background: var(--surface-2); }
+th.l, td.l { text-align: left; }
+tr.group td { background: var(--surface-2); color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; text-align: left; }
+tr.focus td { font-weight: 600; }
+.mini { display: inline-block; height: 8px; border-radius: 3px; vertical-align: middle; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.cols p { margin: 0 0 8px; color: var(--ink-2); font-size: 14px; }
+.cols h3 { font-size: 14px; margin: 0 0 6px; }
+.fine { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 760px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rules, .cols { grid-template-columns: minmax(0, 1fr); }
+  .wf { grid-template-columns: 116px minmax(0, 1fr) 76px; font-size: 13px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow" id="period"></div>
+    <h1>Patient carry over a full year, walk-forward</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <section class="stats" id="stats" aria-label="Results"></section>
+
+  <section class="panel">
+    <h2>The honest split</h2>
+    <p class="sub">The rules were designed while studying the last three months. Everything before that is data the rules never saw, so it is the cleanest estimate of what to expect.</p>
+    <div class="tablewrap"><table id="split"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>The rules</h2>
+    <p class="sub">Every decision every 8 hours uses only data available at that moment.</p>
+    <ol class="rules">
+      <li><b>Crypto only.</b> Perp-perp across venues and same-venue cash-and-carry. Tokenized stocks and commodities are skipped: their funding jumps with market hours.</li>
+      <li><b>Liquid markets only:</b> both legs must have averaged $5M a day over the prior 30 days, measured at the time. <b>Two positions at most,</b> $5,000 a slot: $5,000 notional per perp-perp leg at 2x, or $3,333 spot plus a 2x short for carry. One position per asset.</li>
+      <li><b>Enter on persistent spreads only.</b> Positive carry in at least 60% of the last 7 days' 8h windows and in each of the last 3, and expected net over 7 days above 10 bps after costs, using half the measured spread.</li>
+      <li><b>Exit only when staying costs more than leaving.</b> Close once the 7-day average carry, projected over a week, would lose more than the fees and slippage of closing. Hold at least 3 days.</li>
+      <li><b>Half the fills as post-only limit orders</b> (maker fee, no slippage); the rest cross the book.</li>
+      <li><b>Collateral stays on each venue.</b> Top up a leg from the other when it falls to half its margin or 1.5x maintenance; trim both legs if a rally inflates notional 50% over target.</li>
+    </ol>
+  </section>
+
+  <section class="panel">
+    <h2>Equity and positions</h2>
+    <p class="sub">Equity marked every 8 hours. Bars below show when each position was open; hover either for detail.</p>
+    <div class="chart" id="equity"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Month by month</h2>
+    <p class="sub">Net P&amp;L per calendar month, all costs included. The shaded months are the period the rules were designed on.</p>
+    <div class="chart" id="monthly"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Where the money came from</h2>
+    <p class="sub" id="wfSub"></p>
+    <div class="wf" id="waterfall"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Trades</h2>
+    <div class="tablewrap" style="max-height:520px;overflow:auto"><table id="trades"></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Stress tests</h2>
+    <p class="sub">Each row changes one thing and re-runs the year. The benchmark is the screener's original fast-exit rules on the same data and costs.</p>
+    <div class="tablewrap"><table id="tests"></table></div>
+  </section>
+
+  <section class="cols">
+    <div class="panel">
+      <h3>How close to real it is</h3>
+      <p><b>No hindsight:</b> the rules are frozen exactly as designed; every decision every 8 hours uses only funding, prices and volume up to that moment.</p>
+      <p><b>Point-in-time universe:</b> a pair is tradable only once both legs averaged at least $5M a day over the previous 30 days, measured then, not today. Markets that were liquid earlier and faded are included.</p>
+      <p><b>Funding:</b> every settled print from each venue, from OKX's and Gate's monthly archives and the live APIs.</p>
+      <p><b>Slippage:</b> walked through today's order books at the trade size, then scaled for each date by the square root of today's volume over that date's 30-day volume (thinner markets cost more), priced separately at entry and exit.</p>
+      <p><b>Fees, transfers, gas, margin:</b> base-tier fees, half the fills as maker; $1 withdrawal plus deposit gas and a 2 bp USDT/USDC swap per transfer; hourly margin checks against venue maintenance rates, top-ups, trims and liquidation.</p>
+    </div>
+    <div class="panel">
+      <h3>What is still not real</h3>
+      <p><b>Venues:</b> OKX, Gate, Hyperliquid and dYdX only. Bitget keeps 90 days of funding and its archive is unreachable from here; Binance and Bybit are blocked here.</p>
+      <p><b>Delisted markets</b> are missing, since the universe starts from what is listed today. Hyperliquid prices are 4-hourly before the last ~208 days, so older margin checks are coarser.</p>
+      <p><b>Fills:</b> maker fills are assumed to fill at the touch with no queue risk; both legs fill at the same moment. Historical order books are not public, so slippage is modelled, not measured.</p>
+      <p id="nature"></p>
+    </div>
+  </section>
+  <p class="fine">Backtest, not trading advice.</p>
+</div>
+
+<script>window.ST = __DATA__;</script>
+<script>
+(function () {
+  'use strict';
+  const D = window.ST, M = D.main;
+  const $ = (id) => document.getElementById(id);
+  const usd = (x, sign) => (sign && x > 0 ? '+' : x < 0 ? '−' : '') + '$' + Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: Math.abs(x) < 100 ? 2 : 0, maximumFractionDigits: Math.abs(x) < 100 ? 2 : 0 });
+  const pct = (x, sign) => (sign && x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(1) + '%';
+  const cls = (x) => (x > 0 ? 'pos' : x < 0 ? 'neg' : '');
+  const day = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const VN = { okx: 'OKX', bitget: 'Bitget', gate: 'Gate', hyperliquid: 'Hyperliquid', dydx: 'dYdX' };
+  const S = M.stats, L = M.ledger;
+  const [g0, g1] = M.grid;
+  const trades = M.trades.slice().sort((a, b) => a.entry - b.entry);
+  const COLORS = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)'];
+  trades.forEach((t, i) => (t.color = COLORS[i % COLORS.length]));
+  const tName = (t) => `${t.base} ${t.structure === 'perp' ? `${VN[t.long]}/${VN[t.short]}` : `${VN[t.short]} carry`}`;
+
+  const yr = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  $('period').textContent = `$10,000 · ${yr(g0)} to ${yr(g1)} · ${S.days} days · OKX, Gate, Hyperliquid, dYdX`;
+  const pre = D.tests.find((t) => t.name.startsWith('Before the rules')), des = D.tests.find((t) => t.name.startsWith('Design period'));
+  const bench = D.tests.find((t) => t.group === 'Benchmark');
+  const positive = D.tests.filter((t) => t.group !== 'Benchmark' && t.pnl > 0).length, nTests = D.tests.filter((t) => t.group !== 'Benchmark').length;
+  $('lede').textContent = `${usd(S.pnl, true)} on $10,000 over ${S.days} days after every fee, slippage, transfer and gas cost, from ${S.trades} trades across ${D.pairs} candidate pairs. In the ${pre.days} days before the rules were designed it made ${usd(pre.pnl, true)} (${pct(pre.apr, true)} a year); ${positive} of ${nTests} variations were profitable. The screener's original fast-exit rules returned ${usd(bench.pnl, true)} on the same data.`;
+  $('split').innerHTML = '<thead><tr><th class="l">Period</th><th>Days</th><th>Net P&amp;L</th><th>APR</th><th>Max DD</th><th>Trades</th><th>Win rate</th><th>Capital in use</th></tr></thead><tbody>' +
+    [['Out-of-sample: before the rules existed', pre], ['Design period: rules built on this data', des], ['Full year', D.tests[0]]].map(([n, t], i) => `<tr class="${i === 0 ? 'focus' : ''}"><td class="l">${n}</td><td class="n">${t.days}</td><td class="n ${cls(t.pnl)}">${usd(t.pnl, true)}</td><td class="n">${pct(t.apr, true)}</td><td class="n">${pct(t.dd)}</td><td class="n">${t.trades}</td><td class="n">${t.win ?? '–'}%</td><td class="n">${Math.round(t.slots / 2 * 100)}%</td></tr>`).join('') + '</tbody>';
+
+  $('stats').innerHTML = [
+    ['Net profit', usd(S.pnl, true), `${pct(S.returnPct, true)} on $10,000`, cls(S.pnl)],
+    ['Annualized', pct(S.aprPct, true), `capital in use ${Math.round(S.avgSlotsUsed / 2 * 100)}% of the time`, ''],
+    ['Max drawdown', pct(S.maxDrawdownPct), `Sharpe ${S.sharpe} (daily, annualized)`, ''],
+    ['Trades', String(S.trades), `${S.winRate}% winners · avg hold ${S.avgHoldDays} days`, ''],
+  ].map(([k, v, d, c]) => `<div class="stat"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="d">${d}</div></div>`).join('');
+
+  // ------------------------------------------------------------ equity + positions strip
+  function chart() {
+    const el = $('equity');
+    const W = Math.max(320, el.clientWidth), narrow = W < 600;
+    const laneEnd0 = [];
+    for (const t of trades) { let ln = laneEnd0.findIndex((e) => e <= t.entry); if (ln < 0) ln = laneEnd0.length; laneEnd0[ln] = t.exit; }
+    const H1 = narrow ? 220 : 280, laneH = 22, lanes = Math.max(1, laneEnd0.length), H = H1 + 26 + lanes * laneH + 8;
+    const pad = { l: 64, r: 16, t: 10 };
+    const eq = M.equity;
+    let lo = Math.min(10000, ...eq.map((e) => e[1])), hi = Math.max(10000, ...eq.map((e) => e[1]));
+    const span = hi - lo; lo -= span * 0.08; hi += span * 0.08;
+    const x = (t) => pad.l + ((t - g0) / (g1 - g0)) * (W - pad.l - pad.r);
+    const y = (v) => pad.t + ((hi - v) / (hi - lo)) * (H1 - pad.t - 6);
+    let s = '';
+    const step = [50, 100, 200, 250].find((st) => (hi - lo) / st <= 6) || 500;
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      s += `<line class="${v === 10000 ? 'zero' : 'gridline'}" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">$${v.toLocaleString('en-US')}</text>`;
+    }
+    const area = `M${x(eq[0][0])},${y(10000)}` + eq.map((e) => `L${x(e[0]).toFixed(1)},${y(e[1]).toFixed(1)}`).join('') + `L${x(eq[eq.length - 1][0])},${y(10000)}Z`;
+    s += `<path d="${area}" fill="var(--wash)"/>`;
+    s += `<path d="${eq.map((e, i) => (i ? 'L' : 'M') + x(e[0]).toFixed(1) + ',' + y(e[1]).toFixed(1)).join('')}" fill="none" stroke="var(--s1)" stroke-width="2"/>`;
+    const last = eq[eq.length - 1];
+    s += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/>`;
+    s += `<text class="lbl" x="${x(last[0]) - 8}" y="${y(last[1]) - 10}" text-anchor="end">${usd(last[1])}</text>`;
+    // time axis
+    const ya = H1 + 16;
+    for (let d = Math.ceil(g0 / (14 * 864e5)) * 14 * 864e5; d < g1; d += 14 * 864e5) s += `<text class="tick" x="${x(d)}" y="${ya}" text-anchor="middle">${day(d)}</text>`;
+    // positions: assign lanes greedily
+    const laneEnd = [];
+    for (const t of trades) {
+      let ln = laneEnd.findIndex((e) => e <= t.entry);
+      if (ln < 0) { ln = laneEnd.length; }
+      laneEnd[ln] = t.exit;
+      t.lane = ln;
+      const y0 = H1 + 26 + ln * laneH;
+      const w = Math.max(3, x(t.exit) - x(t.entry) - 2);
+      s += `<rect x="${x(t.entry) + 1}" y="${y0}" width="${w}" height="${laneH - 6}" rx="4" fill="${t.color}" opacity="0.85"><title>${esc(tName(t))}: ${usd(t.total, true)}</title></rect>`;
+      if (w > 110) s += `<text class="lbl2" x="${x(t.entry) + 8}" y="${y0 + 12}" fill="var(--surface)" style="fill:#fff">${esc(t.base)} ${usd(t.total, true)}</text>`;
+    }
+    s += `<line class="cross" id="cross" x1="0" x2="0" y1="${pad.t}" y2="${H - 4}" visibility="hidden"/><rect id="hit" x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent"/>`;
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Equity curve with position timeline">${s}</svg><div class="tip" id="tip" hidden></div>`;
+    const tip = $('tip'), cross = $('cross');
+    $('hit').addEventListener('pointermove', (ev) => {
+      const r = el.querySelector('svg').getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      const t = g0 + ((px - pad.l) / (W - pad.l - pad.r)) * (g1 - g0);
+      let i = 0; while (i < eq.length - 1 && eq[i + 1][0] <= t) i++;
+      cross.setAttribute('x1', x(eq[i][0])); cross.setAttribute('x2', x(eq[i][0])); cross.setAttribute('visibility', 'visible');
+      const open = trades.filter((z) => z.entry <= eq[i][0] && z.exit >= eq[i][0]);
+      tip.hidden = false;
+      tip.innerHTML = `<div class="fine">${new Date(eq[i][0]).toISOString().slice(0, 16).replace('T', ' ')} UTC</div><div class="row"><span>Equity</span><b class="mono">${usd(eq[i][1])}</b></div>` +
+        (open.length ? open.map((z) => `<div class="row"><span><span class="mini" style="width:10px;background:${z.color}"></span> ${esc(tName(z))}</span></div>`).join('') : '<div class="fine">In cash</div>');
+      tip.style.left = Math.min(r.width - tip.offsetWidth - 4, Math.max(0, (x(eq[i][0]) / W) * r.width + 12)) + 'px';
+      tip.style.top = '8px';
+    });
+    $('hit').addEventListener('pointerleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+  }
+
+  // ------------------------------------------------------------ waterfall
+  const costs = -(L.fees + L.slippage + L.transfers);
+  $('wfSub').textContent = `Costs took ${Math.round(costs / L.funding * 100)}% of the funding collected, against more than 100% in the original base case. ${M.rebalances} margin top-ups and ${M.resizes} size trims were needed; no liquidations.`;
+  const rows = [['Funding collected', L.funding], ['Price / basis', L.price], ['Trading fees', L.fees], ['Slippage', L.slippage], ['Transfers & gas', L.transfers]];
+  const net = rows.reduce((a, r) => a + r[1], 0);
+  const max = Math.max(...rows.map((r) => Math.abs(r[1])), Math.abs(net));
+  const bar = (v) => { const w = (Math.abs(v) / max) * 50; return `<div class="bar-track"><span class="mid"></span><span class="bar" style="${v >= 0 ? 'left:50%' : `left:${50 - w}%`};width:${Math.max(w, 0.4)}%;background:${v >= 0 ? 'var(--pos-bar)' : 'var(--neg-bar)'}"></span></div>`; };
+  $('waterfall').innerHTML = rows.map(([l, v]) => `<span>${l}</span>${bar(v)}<span class="v mono ${cls(v)}">${usd(v, true)}</span>`).join('') +
+    `<span class="total">Net P&amp;L</span><div class="total">${bar(net)}</div><span class="v mono total ${cls(net)}">${usd(net, true)}</span>`;
+
+  // ------------------------------------------------------------ trades
+  $('trades').innerHTML = '<thead><tr><th class="l">Position</th><th class="l">Opened</th><th class="l">Closed</th><th>Days</th><th>Notional</th><th>Funding</th><th>Price</th><th>Fees</th><th>Slippage</th><th>Transfers</th><th>Net</th><th>Top-ups</th><th class="l">Why it closed</th></tr></thead><tbody>' +
+    trades.map((t) => `<tr><td class="l"><span class="mini" style="width:10px;background:${t.color}"></span> <b>${esc(t.base)}</b> ${t.structure === 'perp' ? `long ${VN[t.long]}, short ${VN[t.short]}` : `${VN[t.short]} spot + short perp`}</td><td class="l mono">${day(t.entry)}</td><td class="l mono">${day(t.exit)}</td><td class="n">${(t.windows / 3).toFixed(1)}</td><td class="n">${usd(t.notional)}</td><td class="n ${cls(t.funding)}">${usd(t.funding, true)}</td><td class="n ${cls(t.price)}">${usd(t.price, true)}</td><td class="n">${usd(t.fees, true)}</td><td class="n">${usd(t.slippage, true)}</td><td class="n">${usd(t.transfers, true)}</td><td class="n ${cls(t.total)}"><b>${usd(t.total, true)}</b></td><td class="n">${t.rebalances}</td><td class="l">${esc(t.reason === 'end of test' ? 'still open at end' : t.reason)}</td></tr>`).join('') + '</tbody>';
+
+  // ------------------------------------------------------------ stress tests
+  let grp = '';
+  const tmax = Math.max(...D.tests.map((t) => Math.abs(t.pnl)));
+  $('tests').innerHTML = '<thead><tr><th class="l">Test</th><th>Net P&amp;L</th><th class="l"></th><th>APR</th><th>Max DD</th><th>Trades</th><th>Funding</th><th>Costs</th></tr></thead><tbody>' +
+    D.tests.map((t) => {
+      const head = t.group !== grp ? `<tr class="group"><td colspan="8">${esc(t.group)}</td></tr>` : '';
+      grp = t.group;
+      const c = t.ledger.fees + t.ledger.slippage + t.ledger.transfers;
+      return head + `<tr class="${t.name === 'Full period' ? 'focus' : ''}"><td class="l">${esc(t.name)}</td><td class="n ${cls(t.pnl)}">${usd(t.pnl, true)}</td><td class="l"><span class="mini" style="width:${Math.round(Math.abs(t.pnl) / tmax * 120)}px;background:${t.pnl >= 0 ? 'var(--pos-bar)' : 'var(--neg-bar)'}"></span></td><td class="n">${pct(t.apr, true)}</td><td class="n">${pct(t.dd)}</td><td class="n">${t.trades}</td><td class="n">${usd(t.ledger.funding)}</td><td class="n">${usd(c, true)}</td></tr>`;
+    }).join('') + '</tbody>';
+
+  const byAsset = {};
+  for (const t of trades) byAsset[t.base] = (byAsset[t.base] || 0) + t.total;
+  const ranked = Object.entries(byAsset).sort((a, b) => b[1] - a[1]);
+  const top3 = ranked.slice(0, 3).reduce((a, x) => a + x[1], 0);
+  $('nature').innerHTML = `<b>Concentration:</b> the three best assets (${ranked.slice(0, 3).map(([b, v]) => `${esc(b)} ${usd(v, true)}`).join(', ')}) made ${usd(top3, true)} of the ${usd(S.pnl, true)}. Results depend on a handful of persistent spreads appearing.`;
+
+  // ------------------------------------------------------------ monthly bars
+  function monthlyChart() {
+    const el = $('monthly');
+    const W = Math.max(320, el.clientWidth), H = 220, pad = { l: 56, r: 8, t: 12, b: 26 };
+    const ms = M.monthly;
+    const mx = Math.max(1, ...ms.map((m) => Math.abs(m.pnl)));
+    const y = (v) => pad.t + ((mx - v) / (2 * mx)) * (H - pad.t - pad.b);
+    const bw = (W - pad.l - pad.r) / ms.length;
+    let s = '';
+    for (const v of [-mx, -mx / 2, 0, mx / 2, mx]) s += `<line class="${v === 0 ? 'zero' : 'gridline'}" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${pad.l - 6}" y="${y(v) + 4}" text-anchor="end">${usd(v, true)}</text>`;
+    ms.forEach((m, i) => {
+      const x0 = pad.l + i * bw;
+      const design = Date.parse(m.month + '-01T00:00:00Z') >= new Date(D.designStart).setUTCDate(1);
+      if (design) s += `<rect x="${x0}" y="${pad.t}" width="${bw}" height="${H - pad.t - pad.b}" fill="var(--surface-2)"/>`;
+      const h = Math.abs(y(m.pnl) - y(0));
+      s += `<rect x="${x0 + bw * 0.18}" y="${Math.min(y(0), y(m.pnl))}" width="${bw * 0.64}" height="${Math.max(1, h)}" rx="3" fill="${m.pnl >= 0 ? 'var(--pos-bar)' : 'var(--neg-bar)'}"><title>${m.month}: ${usd(m.pnl, true)}</title></rect>`;
+      s += `<text class="tick" x="${x0 + bw / 2}" y="${H - 8}" text-anchor="middle">${new Date(m.month + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`;
+      if (bw > 38) s += `<text class="lbl2" x="${x0 + bw / 2}" y="${m.pnl >= 0 ? y(m.pnl) - 5 : y(m.pnl) + 13}" text-anchor="middle">${usd(m.pnl, true).replace('.00', '')}</text>`;
+    });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly net profit and loss">${s}</svg>`;
+  }
+
+  chart();
+  monthlyChart();
+  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { chart(); monthlyChart(); }, 150); });
+})();
+</script>

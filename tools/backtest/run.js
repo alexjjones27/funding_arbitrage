@@ -56,9 +56,37 @@ function prep(data) {
   for (const l of legs) {
     l.fund = new Map((l.kind === 'perp' ? E.bucketize(l.funding, l.intervalH) : []).map((b) => [b.t, b.v]));
     l.px = l.candles.map((c) => [c[0], c[1] / (l.mult || 1)]); // per unit of underlying
-    l.pxAt = new Map(l.px.map((c) => [c[0] + HOUR, c[1]])); // keyed by close time
+    // Keyed by close time; candles may be hourly or 4-hourly (c[3]).
+    l.pxAt = new Map(l.candles.map((c) => [c[0] + (c[3] || 1) * HOUR, c[1] / (l.mult || 1)]));
+    // Hourly quote volume as a prefix sum, for point-in-time liquidity (when the data has it).
+    if (l.candles[0] && l.candles[0].length > 2) {
+      l.volT = l.candles.map((c) => c[0]);
+      l.volCum = [0];
+      for (const c of l.candles) l.volCum.push(l.volCum[l.volCum.length - 1] + (c[2] || 0));
+    }
   }
+  // Reference liquidity for scaling today's order books: the trailing 30-day level at the end.
+  const end = data.t;
+  for (const l of legs) l.volRef = vol30(l, end);
   return legs;
+}
+// Average daily quote volume over the 30 days before t; null without enough history (new listing).
+function vol30(leg, t) {
+  if (!leg.volT) return null;
+  const lo = lowerBound(leg.volT, t - 30 * 864e5), hi = lowerBound(leg.volT, t);
+  if (hi - lo < 20 * 24 / 4) return null; // fewer than ~20 days of candles even at 4h resolution
+  const spanDays = (leg.volT[hi - 1] - leg.volT[lo]) / 864e5 + 1 / 24;
+  if (spanDays < 20) return null;
+  return (leg.volCum[hi] - leg.volCum[lo]) / spanDays;
+}
+function lowerBound(a, x) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; }
+// Order-book depth scales roughly with traded volume; impact goes with the square root of size
+// over depth. So historical slippage = today's x sqrt(today's volume / volume then), clamped.
+function slipTimeFactor(leg, t) {
+  if (!CFG.slipTimeScale || t === undefined || !leg.volRef) return 1;
+  const v = vol30(leg, t);
+  if (!v) return 2;
+  return Math.min(4, Math.max(0.5, Math.sqrt(leg.volRef / v)));
 }
 // Both legs' prices at the latest hour (at or before t, up to 6h back) where both venues have a
 // candle, so a gap on one venue never marks the two legs at different times.
@@ -99,12 +127,12 @@ function sizing(structure, slotCapital) {
   // Perp-perp: half the slot as margin on each venue. Carry: spot notional plus perp margin.
   return structure === 'perp' ? (slotCapital / 2) * CFG.leverage : slotCapital / (1 + 1 / CFG.leverage);
 }
-function tradeCost(p, notional) {
+function tradeCost(p, notional, t) {
   // A maker fill pays the maker fee and no slippage; the rest crosses the book as taker.
   const ms = CFG.makerShare || 0;
   const leg = (l, entrySide) => {
     const exitSide = entrySide === 'buy' ? 'sell' : 'buy';
-    const sc = CFG.slipScale ?? 1;
+    const sc = (CFG.slipScale ?? 1) * slipTimeFactor(l, t);
     const sIn = sc * interpSlip(l, notional, entrySide), sOut = sc * interpSlip(l, notional, exitSide);
     const f = ms * makerFee(l) + (1 - ms) * fee(l);
     return { fees: 2 * f * notional, slip: (1 - ms) * ((sIn + sOut) / 1e4) * notional };
@@ -126,7 +154,9 @@ function signal(p, k, grid, notional) {
   const recent = hist.slice(-CFG.minRecent);
   const last = hist[hist.length - 1];
   const edge = 0.5 * mean + 0.5 * last; // per 8h, the screener's blend of recent and 7d mean
-  const c = tradeCost(p, notional);
+  // Point-in-time liquidity: both legs must have traded enough over the prior 30 days.
+  if (CFG.minVol30) for (const l of [p.long, p.short]) { const v = vol30(l, grid[k]); if (!v || v < CFG.minVol30) return null; }
+  const c = tradeCost(p, notional, grid[k]);
   if (!isFinite(c.slip)) return null;
   const venues = p.structure === 'perp' ? [p.long.venue, p.short.venue] : [p.short.venue];
   const transfers = venues.reduce((a, v) => a + transferUsd(v, notional / CFG.leverage), 0);
@@ -168,7 +198,8 @@ function simulateInner(legs, pairs, opts) {
   if (opts.to) while (kEnd > firstTrade && grid[kEnd - 1] + B8 > opts.to) kEnd--;
 
   const closePos = (pos, t, reason) => {
-    const c = pos.cost;
+    // Exit costs are priced at exit time (liquidity then), not at entry.
+    const c = CFG.slipTimeScale ? tradeCost(pos.p, pos.notional, t) : pos.cost;
     const exitFees = c.fees - c.entryFees, exitSlip = c.slip - c.entrySlip;
     pos.pnl.fees -= exitFees; pos.pnl.slippage -= exitSlip;
     ledger.fees -= exitFees; ledger.slippage -= exitSlip;
@@ -192,7 +223,8 @@ function simulateInner(legs, pairs, opts) {
       if (opts.costAwareExit) {
         // Leaving costs money too: exit only when the expected loss from staying over the next
         // horizon exceeds the cost of closing, and never before the minimum hold.
-        const exitCost = (pos.cost.fees - pos.cost.entryFees + pos.cost.slip - pos.cost.entrySlip) / pos.notional;
+        const ce = CFG.slipTimeScale ? tradeCost(pos.p, pos.notional, T) : pos.cost;
+        const exitCost = (ce.fees - ce.entryFees + ce.slip - ce.entrySlip) / pos.notional;
         const stay = sig ? sig.mean * CFG.holdHorizonWindows : -Infinity;
         if (pos.windows >= (opts.minHoldWindows || 0) && stay < -exitCost) { closePos(pos, T, !sig ? 'data gap' : 'expected loss exceeds exit cost'); open.splice(i, 1); }
         continue;
@@ -254,7 +286,7 @@ function simulateInner(legs, pairs, opts) {
         const nowN = pos.qty * (pl + ps) / 2;
         if (nowN > CFG.resizeAbove * pos.notional) {
           const cut = nowN - pos.notional;
-          const c = tradeCost(p, cut);
+          const c = tradeCost(p, cut, t);
           pos.qty *= pos.notional / nowN;
           pos.pnl.fees -= c.entryFees; ledger.fees -= c.entryFees;
           pos.pnl.slippage -= c.entrySlip; ledger.slippage -= c.entrySlip;
