@@ -46,8 +46,9 @@ function interpSlip(leg, usd, side) {
   const last = pts[pts.length - 1];
   return last[side] * (usd / last.usd);
 }
-const makerFee = (leg) => (leg.kind === 'spot' ? FEES[leg.venue].spotMaker : FEES[leg.venue].perpMaker) / 100;
-const fee = (leg) => (leg.kind === 'spot' ? FEES[leg.venue].spotTaker : FEES[leg.venue].perpTaker) / 100;
+// feeScale models a cheaper fee tier (VIP level, exchange-token discount, staking): 0.6 = 40% off.
+const makerFee = (leg) => ((leg.kind === 'spot' ? FEES[leg.venue].spotMaker : FEES[leg.venue].perpMaker) / 100) * (CFG.feeScale ?? 1);
+const fee = (leg) => ((leg.kind === 'spot' ? FEES[leg.venue].spotTaker : FEES[leg.venue].perpTaker) / 100) * (CFG.feeScale ?? 1);
 const transferUsd = (venue, amount) => CFG.withdrawUsd + (CFG.depositGas[venue] || 0) + (CFG.usdcVenues[venue] ? (amount * CFG.usdcConvertBps) / 1e4 : 0);
 
 function prep(data) {
@@ -135,7 +136,11 @@ function signal(p, k, grid, notional) {
 function simulate(legs, pairs, opts) {
   const saved = Object.assign({}, CFG);
   Object.assign(CFG, opts.cfg || {});
-  try { return simulateInner(legs, pairs, opts); } finally { Object.assign(CFG, saved); }
+  try { return simulateInner(legs, pairs, opts); } finally {
+    // Restore exactly: drop keys a scenario added, so overrides never leak into later runs.
+    for (const k of Object.keys(CFG)) if (!(k in saved)) delete CFG[k];
+    Object.assign(CFG, saved);
+  }
 }
 function simulateInner(legs, pairs, opts) {
   const K = opts.slots;
@@ -347,6 +352,9 @@ function hindsightPicks(pairs, K, structures, from, to) {
     slowExit: { label: 'Slow exit (hold until the 2-day mean turns negative)', slots: 3, structures: ['perp', 'carry'], exitWindows: 6 },
     maker50: { label: 'Half of fills as maker orders', slots: 3, structures: ['perp', 'carry'], cfg: { makerShare: 0.5 } },
     highHurdle: { label: 'Stricter entry (expected net > 50 bps over 7 days)', slots: 3, structures: ['perp', 'carry'], cfg: { hurdle: 0.005 } },
+    maker100: { label: 'All fills as maker (post-only limit orders)', slots: 3, structures: ['perp', 'carry'], cfg: { makerShare: 1 } },
+    vipTaker: { label: 'Taker fills at a fee tier 40% cheaper', slots: 3, structures: ['perp', 'carry'], cfg: { feeScale: 0.6 } },
+    vipMaker50: { label: 'Half maker, fee tier 40% cheaper', slots: 3, structures: ['perp', 'carry'], cfg: { makerShare: 0.5, feeScale: 0.6 } },
     best: { label: 'Slow exit + half maker + stricter entry', slots: 3, structures: ['perp', 'carry'], exitWindows: 6, cfg: { makerShare: 0.5, hurdle: 0.005 } },
   })) {
     runs[name] = simulate(legs, pairs, o);

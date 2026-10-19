@@ -196,7 +196,7 @@ tr.focus td { font-weight: 600; }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const VN = { okx: 'OKX', bitget: 'Bitget', gate: 'Gate', hyperliquid: 'Hyperliquid', dydx: 'dYdX' };
   const SHORT = { main: 'Base case', best: 'Tuned rules', hindsight3: 'Hindsight, 3 best pairs', hindsight1: 'Hindsight, best pair', noBTW: 'Base case without BTW',
-    slowExit: 'Slow exit', maker50: 'Half maker fills', highHurdle: 'Stricter entry', perpOnly: 'Perp-perp only', carryOnly: 'Cash-and-carry only', concentrated: '1 slot', diversified: '5 slots' };
+    slowExit: 'Slow exit', maker50: 'Half maker fills', maker100: 'All maker fills', vipTaker: 'Taker, 40% cheaper fee tier', vipMaker50: 'Half maker, 40% cheaper tier', highHurdle: 'Stricter entry', perpOnly: 'Perp-perp only', carryOnly: 'Cash-and-carry only', concentrated: '1 slot', diversified: '5 slots' };
 
   const [g0, g1] = D.grid;
   $('period').textContent = `${day(g0)} to ${day(g1)} 2026 · ${R.main.stats.days} days · ${D.venues.map((v) => VN[v]).join(', ')}`;
@@ -218,7 +218,8 @@ tr.focus td { font-weight: 600; }
   $('verdict').innerHTML = [
     `<b>${fundShare(m) >= 100 ? 'Costs exceeded the funding' : 'Costs ate ' + fundShare(m).toFixed(0) + '% of the funding'}</b> in the base case: ${usd(m.ledger.funding)} collected, ${usd(-(m.ledger.fees + m.ledger.slippage + m.ledger.transfers))} paid in fees, slippage and transfers.`,
     `<b>One token carried the result.</b> BTW (Bitget vs Gate) made ${usd(btw, true)} in the base case as it rallied about 14x. Excluded, the base case lost ${usd(-R.noBTW.stats.pnl)}.`,
-    `<b>Execution cost is the lever.</b> Filling half the orders as maker turns ${usd(m.stats.pnl, true)} into ${usd(R.maker50.stats.pnl, true)}; a stricter entry hurdle and slower exits each help by trading less.`,
+    `<b>Maker orders are the lever.</b> Filling half the orders as post-only limit orders turns ${usd(m.stats.pnl, true)} into ${usd(R.maker50.stats.pnl, true)}, and all of them ${usd(R.maker100.stats.pnl, true)}: lower fees and no slippage. A 40% cheaper fee tier alone barely helps (${usd(R.vipTaker.stats.pnl, true)}) because cheaper fees let in more marginal trades that lose to slippage and transfers.`,
+    `<b>Trading less helps only partly.</b> Slower exits lift the base case to ${usd(R.slowExit.stats.pnl, true)}; a stricter entry hurdle on its own made it worse (${usd(R.highHurdle.stats.pnl, true)}).`,
     `<b>Concentration hurt.</b> Putting all $10,000 in one pair at a time lost ${usd(-R.concentrated.stats.pnl)}: slippage at $10,000 a leg is far higher than at $3,333.`,
     `<b>Cash-and-carry was steady but small.</b> Two trades, both winners, ${usd(R.carryOnly.stats.pnl, true)}, with capital idle most of the time because few pairs passed.`,
     `<b>Hedged risk stayed contained.</b> ${m.rebalances} margin top-ups and ${m.resizes} size trims, no liquidations, max drawdown ${pct(m.stats.maxDrawdownPct)} in the base case.`,
