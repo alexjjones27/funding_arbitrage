@@ -80,7 +80,7 @@
   // Per-leg funding history summary in its own terms.
   E.legStats = function (rows, m, now) {
     if (!rows || !rows.length) return null;
-    now = now || Date.now();
+    now = now || FAS.now();
     const within = (d) => rows.filter((x) => x.t >= now - d * DAY);
     const m8 = (arr) => stats.mean(arr.map((x) => E.norm8(x.r, m.intervalH)));
     const series = E.bucketize(rows, m.intervalH);
@@ -204,7 +204,7 @@
   // ------------------------------------------------------------ opportunities
   E.build = function (ctx) {
     const s = ctx.settings;
-    const now = ctx.now || Date.now();
+    const now = ctx.now || FAS.now();
     const hist = ctx.hist || {};
     const books = ctx.books || {};
     const thr = s.persistThrBps / 1e4;

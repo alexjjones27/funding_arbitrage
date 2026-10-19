@@ -21,6 +21,11 @@ The first snapshot takes about 5 seconds. Funding history and order books then l
 25 rows (and any row you click) over the next minute or so; until a row's book arrives its
 slippage is marked `*` (from the touch, or the assumed budget).
 
+**Offline snapshot build** (for hosts that block network requests, such as a claude.ai artifact):
+`NODE_USE_ENV_PROXY=1 node tools/capture.js snapshot.json` pulls venue data plus history and books
+for the shortlist, then `python3 tools/build-artifact.py snapshot.json screener.html` inlines
+everything into one page. It recomputes locally when you change settings but never refreshes.
+
 Tests: `node --test` (Node 18+). They cover normalization, bucketing, persistence, book walking,
 the cost and margin arithmetic, comparability and alert logic.
 

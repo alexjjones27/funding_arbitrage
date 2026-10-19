@@ -69,6 +69,10 @@
       U.render();
     };
     $('refreshBtn').onclick = () => FAS.refresh();
+    if (window.FAS_SNAPSHOT) {
+      $('refreshBtn').hidden = true;
+      document.querySelector('.brand .sub').textContent = 'Snapshot captured ' + new Date(window.FAS_SNAPSHOT.t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    }
     $('settingsBtn').onclick = () => toggleSettings(true);
     $('settingsClose').onclick = () => toggleSettings(false);
     $('clearAlerts').onclick = () => { S().alerts = []; FAS.store.set('alerts', []); U.render(); };
@@ -160,7 +164,7 @@
   // ------------------------------------------------------------ header status
   U.status = function () {
     const st = S();
-    $('clock').textContent = new Date().toISOString().slice(11, 19) + 'Z';
+    $('clock').textContent = new Date(FAS.now()).toISOString().slice(window.FAS_SNAPSHOT ? 0 : 11, 19).replace('T', ' ') + 'Z';
     const pills = FAS.venueOrder.map((v) => {
       if (set().venues[v] === false) return `<span class="pill off" title="Disabled in Settings">${vname(v)}</span>`;
       const sn = st.snap[v];
@@ -181,6 +185,7 @@
     }).join('');
     if ($('venuePills').dataset.html !== pills) { $('venuePills').innerHTML = pills; $('venuePills').dataset.html = pills; }
     const pend = st.pending.size;
+    if (window.FAS_SNAPSHOT) { $('syncStatus').textContent = 'Snapshot, not live'; return; }
     $('syncStatus').textContent = st.busy ? 'Refreshing…' : st.lastSnap ? `Snapshot ${f.ago(st.lastSnap)}${pend ? ` · loading ${pend}` : ''}` : 'Loading…';
   };
 
@@ -272,7 +277,7 @@
     const L = o.long, Sh = o.short;
     const legs = [L, Sh];
     const p = o.persist;
-    const legStat = (leg) => (leg.kind === 'perp' && st.hist[E.key(leg.m)] ? E.legStats(st.hist[E.key(leg.m)].rows, leg.m) : null);
+    const legStat = (leg) => (leg.kind === 'perp' && st.hist[E.key(leg.m)] ? E.legStats(st.hist[E.key(leg.m)].rows, leg.m, FAS.now()) : null);
     const ls = legs.map(legStat);
     const row = (label, fn, title) => `<tr${title ? ` title="${esc(title)}"` : ''}><th>${label}</th>${legs.map((l, i) => `<td>${fn(l, i)}</td>`).join('')}</tr>`;
     const perpOnly = (fn) => (l, i) => (l.kind === 'perp' ? fn(l.m, l, i) : '<span class="muted">spot</span>');
@@ -312,7 +317,7 @@
       ['Std dev bps/8h', `7d ${f.bps(p.std7 * 1e4, 2)} · 30d ${f.bps(p.std30 * 1e4, 2)}${isNum(p.cv) ? ` · CV ${p.cv.toFixed(2)}` : ''}`],
       ['Latest vs median', `${f.bps(p.last * 1e4, 2)} bps · z ${f.num(p.z, 1)}`],
       ['Cumulative', `7d ${f.bps(p.cum7 * 1e4, 1)} bps · 30d ${f.bps(p.cum30 * 1e4, 1)} bps (${p.n} windows)`],
-    ].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('') : `<tr><td class="muted">${pend(o) === '<span class="muted">…</span>' ? 'Loading funding history…' : 'History loads for the top ' + s.enrichN + ' rows and the selected row.'}</td></tr>`;
+    ].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('') : `<tr><td class="muted">${pend(o) === '<span class="muted">…</span>' ? 'Loading funding history…' : (window.FAS_SNAPSHOT ? 'Funding history was captured for the top-ranked rows only; this row is not among them.' : 'History loads for the top ' + s.enrichN + ' rows and the selected row.')}</td></tr>`;
 
     el.innerHTML = `
       <div class="card-head">
@@ -335,7 +340,7 @@
             ${row('Current rate', perpOnly((m) => `${f.rate(m.rate)} <span class="muted">${f.bps(E.norm8(m.rate, m.intervalH) * 1e4, 2)} bps/8h · ${f.pct(E.apr(E.norm8(m.rate, m.intervalH)))}</span>`))}
             ${row('Predicted next', perpOnly((m) => (isNum(m.predicted) ? `${f.rate(m.predicted)} <span class="muted">${f.bps(E.norm8(m.predicted, m.intervalH) * 1e4, 2)} bps/8h</span>` : '<span class="muted">not published</span>')))}
             ${row('Last settled', perpOnly((m, l, i) => { const rows = st.hist[E.key(m)]; const last = rows && rows.rows.length ? rows.rows[rows.rows.length - 1] : null; return isNum(m.lastSettled) ? f.rate(m.lastSettled) : last ? `${f.rate(last.r)} <span class="muted">${f.time(last.t)}</span>` : (ls[i] ? '–' : '<span class="muted">–</span>'); }))}
-            ${row('Next settlement', perpOnly((m) => `${f.time(m.nextTs)} <span class="muted">in ${f.dur(m.nextTs - Date.now())}</span>`))}
+            ${row('Next settlement', perpOnly((m) => `${f.time(m.nextTs)} <span class="muted">in ${f.dur(m.nextTs - FAS.now())}</span>`))}
             ${row('Funding cap', perpOnly((m) => (isNum(m.capRate) ? '±' + f.rate(m.capRate) : '–')))}
             ${row('Mean bps/8h: last 3 / 7d / 14d / 30d', (l, i) => (ls[i] ? `${f.bps(ls[i].last3 * 1e4, 2)} / ${f.bps(ls[i].mean7 * 1e4, 2)} / ${f.bps(ls[i].mean14 * 1e4, 2)} / ${f.bps(ls[i].mean30 * 1e4, 2)}` : '<span class="muted">' + (l.kind === 'spot' ? 'spot' : '–') + '</span>'))}
             ${row('Cumulative funding 1d / 7d / 30d', (l, i) => (ls[i] ? `${f.bps(ls[i].cum1 * 1e4, 1)} / ${f.bps(ls[i].cum7 * 1e4, 1)} / ${f.bps(ls[i].cum30 * 1e4, 1)} bps` : '<span class="muted">–</span>'), 'Sum of settled rates; positive means longs paid shorts')}

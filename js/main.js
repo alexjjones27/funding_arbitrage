@@ -70,7 +70,7 @@
 
   function recompute() {
     const s = S.settings;
-    const opps = E.build({ perps: S.perps, spots: S.spots, borrow: S.borrow, hist: S.hist, books: S.books, settings: s });
+    const opps = E.build({ perps: S.perps, spots: S.spots, borrow: S.borrow, hist: S.hist, books: S.books, settings: s, now: FAS.now() });
     S.excluded = opps.excluded;
     S.opps = opps;
     S.matrix = E.matrix(S.perps, s);
@@ -135,7 +135,7 @@
   function checkAlerts() {
     const s = S.settings;
     if (!s.alertsOn) return;
-    const now = Date.now();
+    const now = FAS.now();
     let added = false;
     for (const o of S.opps) {
       if (!o.alertable) continue;
@@ -165,8 +165,31 @@
 
   FAS.refresh = snapshot;
 
+  // Embedded snapshot (window.FAS_SNAPSHOT): load the captured data, recompute locally, never fetch.
+  function loadEmbedded(d) {
+    S.snap = d.snap;
+    S.hist = d.hist || {};
+    S.books = d.books || {};
+    S.perps = []; S.spots = []; S.borrow = {};
+    for (const id of FAS.venueOrder) {
+      const sn = S.snap[id];
+      if (!sn || S.settings.venues[id] === false) continue;
+      S.perps.push(...(sn.perps || []));
+      S.spots.push(...(sn.spots || []));
+      if (sn.borrow) S.borrow[id] = sn.borrow;
+    }
+    S.lastSnap = d.t;
+    recompute();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     FAS.ui.init();
+    if (window.FAS_SNAPSHOT) {
+      FAS.refresh = () => loadEmbedded(window.FAS_SNAPSHOT);
+      FAS.enrich = () => {};
+      FAS.refresh();
+      return;
+    }
     snapshot();
     setInterval(snapshot, cfg.snapshotMs);
     setInterval(enrich, cfg.enrichCycleMs);

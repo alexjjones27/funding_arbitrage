@@ -6,6 +6,8 @@
   const HOUR = 3600e3;
   const DAY = 24 * HOUR;
   FAS.HOUR = HOUR;
+  // Wall clock, frozen at the capture time when the page runs from an embedded snapshot.
+  FAS.now = () => (root.FAS_SNAPSHOT ? root.FAS_SNAPSHOT.t : Date.now());
   FAS.DAY = DAY;
 
   FAS.config = {
@@ -137,6 +139,7 @@
     },
     ago(ts) {
       if (!isNum(ts)) return 'never';
+      if (root.FAS_SNAPSHOT) return 'at ' + new Date(ts).toISOString().slice(11, 16) + 'Z';
       const s = Math.round((Date.now() - ts) / 1000);
       if (s < 60) return s + 's ago';
       if (s < 3600) return Math.round(s / 60) + 'm ago';
