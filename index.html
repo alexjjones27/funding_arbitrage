@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Funding Arb Screener</title>
+  <meta name="description" content="Funding-rate arbitrage screener: normalized cross-venue funding, net carry after costs, persistence, liquidity, margin and comparability checks.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Funding Arb Screener</h1>
+      <span class="sub">net carry, not headline rates</span>
+    </div>
+    <div class="pills" id="venuePills" aria-label="Venue status"></div>
+    <div class="status">
+      <span class="sync" id="syncStatus" aria-live="polite">Loading…</span>
+      <span class="clock" id="clock"></span>
+      <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      <button class="btn" id="themeBtn" type="button" aria-label="Toggle theme">Theme</button>
+      <button class="btn" id="settingsBtn" type="button" aria-expanded="false" aria-controls="settings">Settings</button>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-label="Summary"></section>
+
+  <section class="toolbar" aria-label="Controls">
+    <div class="seg" id="tabSeg" role="radiogroup" aria-label="View"></div>
+    <div class="ctl-group" id="oppControls">
+      <div class="seg" id="structSeg" role="radiogroup" aria-label="Structure"></div>
+      <label class="field">Notional $<input type="number" id="notional" min="100" step="1000"></label>
+      <label class="field">Hold days<input type="number" id="hold" min="0.34" step="1"></label>
+      <label class="field">Carry estimate
+        <select id="basis">
+          <option value="blend">Blend: next + 7d mean</option>
+          <option value="current">Current rate</option>
+          <option value="predicted">Predicted next</option>
+          <option value="mean7">7d mean</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="bestPairOnly"> Best pair per asset</label>
+      <label class="check"><input type="checkbox" id="hideIlliquid"> Hide illiquid</label>
+      <label class="check"><input type="checkbox" id="hideNegative"> Net-positive only</label>
+      <label class="check"><input type="checkbox" id="alertableOnly"> Alertable only</label>
+    </div>
+    <input class="search" id="search" type="search" placeholder="Filter asset or venue" aria-label="Filter asset or venue">
+  </section>
+
+  <main class="layout" id="main">
+    <section class="card table-card">
+      <div id="oppView">
+        <div class="card-head">
+          <h2>Opportunities</h2>
+          <span class="sub" id="tableSub"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="grid" id="grid">
+            <thead id="gridHead"></thead>
+            <tbody id="gridBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="matrixView" hidden>
+        <div class="card-head">
+          <h2>Funding matrix</h2>
+          <span class="sub" id="matrixSub"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="grid matrix">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="venueView" hidden>
+        <div class="card-head"><h2>Venues</h2><span class="sub">Live connection state and the execution facts the screener cannot fetch publicly</span></div>
+        <div class="table-wrap venues-wrap">
+          <table class="grid venues">
+            <thead><tr><th class="l">Venue</th><th class="l">Data</th><th>Perps</th><th>Spot</th><th>Req/min</th><th class="l">Last OK</th><th class="l">Collateral</th><th class="l">Funding intervals</th><th class="l">Caps</th><th class="l">Margin</th><th class="l">ADL / insurance</th><th class="l">Transfers</th><th class="l">API limits</th><th class="l">Access</th></tr></thead>
+            <tbody id="venueBody"></tbody>
+          </table>
+          <div class="method">
+            <h3>Method</h3>
+            <p><b>Normalization.</b> Every rate is converted to an 8h equivalent (rate × 8 / interval hours) and annualized as 8h × 3 × 365. A 1h venue's raw rate is never compared with an 8h venue's.</p>
+            <p><b>Carry estimate.</b> The toolbar chooses which rate drives the expected return: the current accruing rate, the venue's predicted next rate, the 7-day mean from settled history, or (default) the average of the next rate and the 7-day mean. Rows without loaded history fall back to the next rate.</p>
+            <p><b>Net carry.</b> Gross = funding received on the short leg minus funding paid on the long leg (spot pays none). Costs are a full round trip on both legs: fees at your maker share plus slippage walked through the live order book at your notional, entry and exit sides separately. Reverse carry also pays borrow (OKX publishes rates; others use the assumed rate in Settings). Net over the hold = gross × periods − round trip − borrow; break-even spread = round trip / periods + borrow.</p>
+            <p><b>Persistence.</b> Settled funding is bucketed into 8h UTC windows (a 1h venue's eight prints sum into one window), the long leg is subtracted from the short leg window by window, and streaks, threshold hit-rates, means, medians, dispersion and a robust z are computed on that trade-level series.</p>
+            <p><b>Liquidity.</b> Thresholds apply to each leg on its own. Depth is the USD resting within ±10/25/50/100 bps of mid; a + marks a venue book that ends inside the band.</p>
+            <p><b>Margin.</b> Liquidation distance = 1/leverage − maintenance rate (venue rate where published, otherwise half the initial margin at max leverage). Stressed utilization = maintenance margin / remaining equity after a move of N daily σ, with σ from the 24h range (Parkinson).</p>
+            <p><b>Comparability.</b> Legs whose per-unit prices differ by more than the Settings tolerance are treated as different underlyings and dropped. Quote, contract type, multiplier, index, schedule, caps, listing status and leverage limits are checked and shown per row.</p>
+            <p><b>Score.</b> 100 × (w1·APR + w2·persistence + w3·liquidity + w4·feasibility − w5·penalties) / (w1+w2+w3+w4). APR scales to the cap in Settings; persistence mixes the 7d hit-rate, streak and stability; liquidity is log10(weakest leg OI or volume / notional) / 3; feasibility is the share of gross carry left after costs. Penalties add for volatile funding, thin books, wide basis, delisting, margin stress, mixed schedules, quote mismatch, crowding and rate-only data.</p>
+            <p><b>Not covered.</b> Your actual fee tier, account margin mode, withdrawal status per chain, API latency and borrow availability need your own accounts; set the fee tier and borrow rate in Settings and treat the venue notes above as a checklist.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="card detail-card" id="detail" aria-label="Opportunity detail"></section>
+      <section class="card alerts-card" aria-label="Alerts">
+        <div class="card-head">
+          <h2>Alerts</h2>
+          <span class="sub" id="alertsSub"></span>
+          <button class="btn small" id="clearAlerts" type="button">Clear</button>
+        </div>
+        <ol class="alerts" id="alerts"></ol>
+      </section>
+    </aside>
+  </main>
+
+  <aside class="settings" id="settings" hidden>
+    <div class="settings-inner">
+      <div class="card-head">
+        <h2>Settings</h2>
+        <button class="btn small" id="settingsClose" type="button">Close</button>
+      </div>
+      <form id="settingsForm" onsubmit="return false"></form>
+      <p class="fine">Settings and the alert log stay in this browser (localStorage). Data comes straight from each venue's public API; nothing is sent anywhere else. This is a screener, not trading advice.</p>
+    </div>
+  </aside>
+
+  <script src="js/util.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/venues.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "funding-arb-screener",
+  "private": true,
+  "description": "Browser-based funding-rate arbitrage screener. No build step; package.json only runs the tests.",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8000"
+  }
+}
