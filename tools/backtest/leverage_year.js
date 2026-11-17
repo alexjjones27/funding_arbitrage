@@ -29,6 +29,7 @@ for (const [label, structures] of Object.entries(STRUCTS)) {
       // Gross notional per leg relative to capital, averaged over time while positions are open.
       const notional = r.trades.length ? r.trades.reduce((a, t) => a + t.notional * t.windows, 0) / r.trades.reduce((a, t) => a + t.windows, 0) : 0;
       const row = { structure: label, leverage: lev, period, pairs: ps.length, ...r.stats, ledger: r.ledger, liquidations: r.liquidations, rebalances: r.rebalances, avgNotionalPerSlot: +notional.toFixed(0) };
+      if (period === 'full') row.equity = r.equity.filter((e, i) => i % 3 === 0).map((e) => [e[0], e[1]]);
       out.rows.push(row);
       if (period === 'full' || period === 'oos') console.error(label.slice(0, 30).padEnd(31), `${lev}x`.padEnd(5), period.padEnd(4), `pnl ${row.pnl} apr ${row.aprPct}% dd ${row.maxDrawdownPct}% sharpe ${row.sharpe} trades ${row.trades} liq ${row.liquidations} rebal ${row.rebalances} fund ${row.ledger.funding} costs ${(row.ledger.fees + row.ledger.slippage + row.ledger.transfers).toFixed(0)}`);
     }
