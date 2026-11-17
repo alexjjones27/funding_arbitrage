@@ -65,6 +65,14 @@ function prep(data) {
       for (const c of l.candles) l.volCum.push(l.volCum[l.volCum.length - 1] + (c[2] || 0));
     }
   }
+  // Optional intra-hour highs and lows (data.hilo[key] = [[openT, high, low, hours], ...]), keyed by
+  // each hour's close; a 4-hour candle's range applies to all four of its hours.
+  for (const l of legs) {
+    const rows = data.hilo && data.hilo[l.key];
+    if (!rows) continue;
+    l.hlAt = new Map();
+    for (const [t, hi, lo, hrs] of rows) for (let j = 1; j <= (hrs || 1); j++) l.hlAt.set(t + j * HOUR, [hi / (l.mult || 1), lo / (l.mult || 1)]);
+  }
   // Reference liquidity for scaling today's order books: the trailing 30-day level at the end.
   const end = data.t;
   for (const l of legs) l.volRef = vol30(l, end);
@@ -94,7 +102,7 @@ function pairPx(p, t) {
   for (let h = 0; h <= 6; h++) {
     const k = Math.floor(t / HOUR) * HOUR - h * HOUR;
     const a = p.long.pxAt.get(k), b = p.short.pxAt.get(k);
-    if (a !== undefined && b !== undefined) return [a, b];
+    if (a !== undefined && b !== undefined) return [a, b, k];
   }
   return null;
 }
@@ -190,7 +198,7 @@ function simulateInner(legs, pairs, opts) {
   const trades = [];
   const equity = [];
   const ledger = { funding: 0, price: 0, fees: 0, slippage: 0, transfers: 0 };
-  let realized = 0, rebalances = 0, liquidations = 0, resizes = 0;
+  let realized = 0, rebalances = 0, liquidations = 0, resizes = 0, wickMiss = 0;
   // Optional trading window [opts.from, opts.to): signals still see all history before it.
   let firstTrade = CFG.warmupWindows;
   if (opts.from) while (firstTrade < grid.length && grid[firstTrade] < opts.from) firstTrade++;
@@ -273,7 +281,7 @@ function simulateInner(legs, pairs, opts) {
         const t = T + h * HOUR;
         const pp = pairPx(p, t);
         if (!pp) continue;
-        const [pl, ps] = pp;
+        const [pl, ps, hk] = pp;
         const dL = pos.qty * (pl - pos.pxL), dS = -pos.qty * (ps - pos.pxS);
         pos.pxL = pl; pos.pxS = ps;
         pos.pnl.price += dL + dS; ledger.price += dL + dS;
@@ -298,7 +306,16 @@ function simulateInner(legs, pairs, opts) {
         const eqOf = (side) => pos.margin[side] + pos.legPnl[side] + (p.structure === 'carry' && side === 'short' ? pos.legPnl.long : 0);
         const reqOf = (side) => mmrOf(p[side]) * pos.qty * (side === 'long' ? pl : ps);
         const perpSides = ['long', 'short'].filter((sd) => p[sd].kind === 'perp');
-        if (p.structure === 'perp' && perpSides.some((sd) => eqOf(sd) < Math.max(CFG.rebalanceAt * pos.margin[sd], 1.5 * reqOf(sd)))) {
+        // Worst price inside the hour for each leg (CFG.wicks): the long perp at the hour's low,
+        // the short perp at its high (a carry's spot leg rises with it). Without wicks, the close.
+        const ext = (leg, px) => (CFG.wicks && leg.hlAt && leg.hlAt.get(hk)) || [px, px];
+        const [hiL, loL] = ext(p.long, pl), [hiS] = ext(p.short, ps);
+        if (CFG.wicks && !(p.long.hlAt && p.long.hlAt.get(hk) && p.short.hlAt && p.short.hlAt.get(hk))) wickMiss++;
+        const advPx = { long: loL, short: hiS };
+        const eqAdv = (side) => side === 'long' ? eqOf('long') + pos.qty * (loL - pl)
+          : eqOf('short') - pos.qty * (hiS - ps) + (p.structure === 'carry' ? pos.qty * (hiL - pl) : 0);
+        const reqAdv = (side) => mmrOf(p[side]) * pos.qty * advPx[side];
+        const pool = () => {
           const total = eqOf('long') + eqOf('short');
           const thin = eqOf('long') < eqOf('short') ? 'long' : 'short';
           const cost = transferUsd(p[thin].venue, Math.abs(eqOf('long') - eqOf('short')) / 2);
@@ -306,10 +323,16 @@ function simulateInner(legs, pairs, opts) {
           pos.legPnl.long = pos.legPnl.short = 0;
           pos.pnl.transfers -= cost; ledger.transfers -= cost;
           pos.rebalances++; rebalances++;
+        };
+        // A top-up is triggered when a leg runs thin (at its worst price in the hour) and lands
+        // CFG.transferDelayH hours later; until then the thin leg stands on its own margin.
+        if (p.structure === 'perp' && !pos.pend && perpSides.some((sd) => eqAdv(sd) < Math.max(CFG.rebalanceAt * pos.margin[sd], 1.5 * reqAdv(sd)))) {
+          if (CFG.transferDelayH) pos.pend = t + CFG.transferDelayH * HOUR; else pool();
         }
+        if (pos.pend && t >= pos.pend) { pos.pend = null; pool(); }
         for (const sd of perpSides) {
           const eq = eqOf(sd);
-          if (eq <= reqOf(sd)) {
+          if (eqAdv(sd) <= reqAdv(sd)) {
             // Liquidated: the venue keeps what is left of this leg's margin.
             const lost = Math.max(0, eq);
             pos.pnl.price -= lost; ledger.price -= lost;
@@ -320,7 +343,8 @@ function simulateInner(legs, pairs, opts) {
         if (liquidated) break;
       }
       const c = carryAt(p, T);
-      if (c !== undefined) {
+      // A leg liquidated inside the window is gone before settlement (wick mode).
+      if (c !== undefined && !(liquidated && CFG.wicks)) {
         const f = c * pos.qty * ((pos.pxL + pos.pxS) / 2);
         pos.pnl.funding += f; ledger.funding += f;
       }
@@ -337,7 +361,7 @@ function simulateInner(legs, pairs, opts) {
   const lastT = grid[kEnd - 1] + B8;
   for (const pos of open.splice(0)) closePos(pos, lastT, 'end of test');
   equity.push([lastT, +(CFG.capital + realized).toFixed(2), 0]);
-  return { opts, grid: [grid[firstTrade], lastT], equity, trades, ledger: roundPnl(ledger), rebalances, liquidations, resizes, stats: stats(equity, trades, grid[firstTrade], lastT) };
+  return { opts, grid: [grid[firstTrade], lastT], equity, trades, ledger: roundPnl(ledger), rebalances, liquidations, resizes, wickMiss, stats: stats(equity, trades, grid[firstTrade], lastT) };
 }
 
 function roundPnl(o) { const r = {}; for (const k of Object.keys(o)) r[k] = +o[k].toFixed(2); return r; }
