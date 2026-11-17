@@ -71,7 +71,7 @@ function prep(data) {
     const rows = data.hilo && data.hilo[l.key];
     if (!rows) continue;
     l.hlAt = new Map();
-    for (const [t, hi, lo, hrs] of rows) for (let j = 1; j <= (hrs || 1); j++) l.hlAt.set(t + j * HOUR, [hi / (l.mult || 1), lo / (l.mult || 1)]);
+    for (const [t, hi, lo, hrs] of rows) for (let j = 1; j <= (hrs || 1); j++) l.hlAt.set(t + j * HOUR, [hi / (l.mult || 1), lo / (l.mult || 1), hrs || 1]);
   }
   // Reference liquidity for scaling today's order books: the trailing 30-day level at the end.
   const end = data.t;
@@ -99,6 +99,18 @@ function slipTimeFactor(leg, t) {
 // Both legs' prices at the latest hour (at or before t, up to 6h back) where both venues have a
 // candle, so a gap on one venue never marks the two legs at different times.
 function pairPx(p, t) {
+  // CFG.fillGaps: when one venue has no candle for this hour (e.g. Hyperliquid's 4-hour history),
+  // mark that leg from the other venue's hourly price, scaled by the last hour both traded.
+  if (CFG.fillGaps) {
+    const k0 = Math.floor(t / HOUR) * HOUR;
+    const a0 = p.long.pxAt.get(k0), b0 = p.short.pxAt.get(k0);
+    if ((a0 === undefined) !== (b0 === undefined)) {
+      for (let h = 1; h <= 6; h++) {
+        const k = k0 - h * HOUR, a = p.long.pxAt.get(k), b = p.short.pxAt.get(k);
+        if (a !== undefined && b !== undefined) return a0 === undefined ? [b0 * a / b, b0, k0, 'long'] : [a0, a0 * b / a, k0, 'short'];
+      }
+    }
+  }
   for (let h = 0; h <= 6; h++) {
     const k = Math.floor(t / HOUR) * HOUR - h * HOUR;
     const a = p.long.pxAt.get(k), b = p.short.pxAt.get(k);
@@ -185,7 +197,9 @@ function simulate(legs, pairs, opts) {
 function simulateInner(legs, pairs, opts) {
   const K = opts.slots;
   const slotCap = CFG.capital / K;
-  const notionalFor = (p) => sizing(p.structure, slotCap);
+  let realizedRef = 0;
+  // CFG.sizeFromEquity: size new slots from the account's current value, not the starting capital.
+  const notionalFor = (p) => sizing(p.structure, CFG.sizeFromEquity ? Math.max(0, Math.min(CFG.capital, CFG.capital + realizedRef)) / K : slotCap);
   const allowed = (p) => opts.structures.includes(p.structure) && !(opts.exclude || []).includes(p.base);
   const universe = pairs.filter(allowed);
   const { start, end } = BOUNDS; // legs listed later simply have no prices before their listing
@@ -212,7 +226,7 @@ function simulateInner(legs, pairs, opts) {
     pos.pnl.fees -= exitFees; pos.pnl.slippage -= exitSlip;
     ledger.fees -= exitFees; ledger.slippage -= exitSlip;
     const total = pos.pnl.funding + pos.pnl.price + pos.pnl.fees + pos.pnl.slippage + pos.pnl.transfers;
-    realized += total;
+    realized += total; realizedRef = realized;
     trades.push({ pair: pos.p.id, base: pos.p.base, structure: pos.p.structure, long: pos.p.long.venue, short: pos.p.short.venue,
       entry: pos.entryT, exit: t, windows: pos.windows, notional: pos.notional, reason, ...roundPnl(pos.pnl), total: +total.toFixed(2),
       expNetBps: +(pos.expNet * 1e4).toFixed(1), rebalances: pos.rebalances, resizes: pos.resizes || 0 });
@@ -240,7 +254,7 @@ function simulateInner(legs, pairs, opts) {
       if (!sig || recentMean < 0 || sig.edge <= 0) { closePos(pos, T, !sig ? 'data gap' : recentMean < 0 ? 'carry turned negative' : 'edge gone'); open.splice(i, 1); }
     }
     // 2) entries
-    if (open.length < K && k < kEnd - 3 && !(opts.forced && k > firstTrade)) {
+    if (open.length < K && k < kEnd - 3 && !(opts.forced && k > firstTrade) && !(CFG.sizeFromEquity && CFG.capital + realized < 0.1 * CFG.capital)) {
       const held = new Set(open.map((o) => o.p.base));
       const cands = [];
       for (const p of universe) {
@@ -281,7 +295,7 @@ function simulateInner(legs, pairs, opts) {
         const t = T + h * HOUR;
         const pp = pairPx(p, t);
         if (!pp) continue;
-        const [pl, ps, hk] = pp;
+        const [pl, ps, hk, filled] = pp;
         const dL = pos.qty * (pl - pos.pxL), dS = -pos.qty * (ps - pos.pxS);
         pos.pxL = pl; pos.pxS = ps;
         pos.pnl.price += dL + dS; ledger.price += dL + dS;
@@ -308,8 +322,15 @@ function simulateInner(legs, pairs, opts) {
         const perpSides = ['long', 'short'].filter((sd) => p[sd].kind === 'perp');
         // Worst price inside the hour for each leg (CFG.wicks): the long perp at the hour's low,
         // the short perp at its high (a carry's spot leg rises with it). Without wicks, the close.
-        const ext = (leg, px) => (CFG.wicks && leg.hlAt && leg.hlAt.get(hk)) || [px, px];
-        const [hiL, loL] = ext(p.long, pl), [hiS] = ext(p.short, ps);
+        // A leg with only a multi-hour bar (or a filled price) borrows the other leg's hourly range.
+        const bar = (leg) => CFG.wicks && leg.hlAt && leg.hlAt.get(hk);
+        const ext = (side, px) => {
+          const own = bar(p[side]), oSide = side === 'long' ? 'short' : 'long', other = bar(p[oSide]);
+          const oPx = side === 'long' ? ps : pl;
+          if (CFG.fillGaps && other && other[2] === 1 && (filled === side || !own || own[2] > 1)) return [px * other[0] / oPx, px * other[1] / oPx];
+          return own || [px, px];
+        };
+        const [hiL, loL] = ext('long', pl), [hiS] = ext('short', ps);
         if (CFG.wicks && !(p.long.hlAt && p.long.hlAt.get(hk) && p.short.hlAt && p.short.hlAt.get(hk))) wickMiss++;
         const advPx = { long: loL, short: hiS };
         const eqAdv = (side) => side === 'long' ? eqOf('long') + pos.qty * (loL - pl)
